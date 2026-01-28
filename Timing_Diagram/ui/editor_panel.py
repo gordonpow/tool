@@ -27,7 +27,8 @@ class BusEditorPanel(QFrame):
         
         # Header
         layout.addWidget(QLabel("<b>Bus/State Editor</b>"))
-        
+
+
         # Value Input
         layout.addWidget(QLabel("Value / Name:"))
         self.input = QLineEdit()
@@ -237,3 +238,10 @@ class BusEditorPanel(QFrame):
     def emit_change(self):
         if self.current_signal:
              self.changed.emit(self.input.text(), self.selected_color, self.start_spin.value(), self.end_spin.value())
+
+    def reset(self):
+        self.current_signal = None
+        self.current_cycle_idx = 0
+        self.input.setText("")
+        self.color_preview.setStyleSheet("background-color: transparent; border: 1px solid #555;")
+        self.setEnabled(False)

@@ -173,6 +173,10 @@ class ExportDialog(QDialog):
         if current_fmt in formats:
              self.format_combo.setCurrentText(current_fmt)
         form.addRow("Format:", self.format_combo)
+
+        # Filename
+        self.filename_edit = QLineEdit(settings.get('filename', 'waveform'))
+        form.addRow("Filename:", self.filename_edit)
         
         # Output Folder
         self.path_edit = QLineEdit(settings.get('path', ''))
@@ -266,5 +270,6 @@ class ExportDialog(QDialog):
             'font_color': self.font_color,
             'font_size': self.font_size_spin.value(),
             'format': self.format_combo.currentText(),
+            'filename': self.filename_edit.text(),
             'path': self.path_edit.text()
         }

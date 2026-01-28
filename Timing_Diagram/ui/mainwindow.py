@@ -1,6 +1,8 @@
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                                QListWidget, QPushButton, QLabel, QSplitter, 
-                               QFrame, QInputDialog, QListWidgetItem, QComboBox, QLineEdit, QHBoxLayout, QSpinBox, QColorDialog, QCheckBox, QScrollArea)
+                               QFrame, QInputDialog, QListWidgetItem, QComboBox, QLineEdit, QSpinBox, 
+                               QColorDialog, QCheckBox, QScrollArea, QFileDialog, QMessageBox)
+import json
 from PyQt6.QtGui import QColor, QPalette
 from PyQt6.QtCore import Qt, QSize
 from core.models import Project, Signal, SignalType
@@ -139,6 +141,17 @@ class MainWindow(QMainWindow):
         
         left_layout.addWidget(QLabel("Signals"))
         
+        # Save / Load
+        sl_layout = QHBoxLayout()
+        btn_save = QPushButton("Save Project")
+        btn_save.clicked.connect(self.save_project_file)
+        sl_layout.addWidget(btn_save)
+        
+        btn_load = QPushButton("Load Project")
+        btn_load.clicked.connect(self.load_project_file)
+        sl_layout.addWidget(btn_load)
+        left_layout.addLayout(sl_layout)
+        
         self.signal_list = QListWidget()
         self.signal_list.setDragDropMode(QListWidget.DragDropMode.InternalMove)
         self.signal_list.model().rowsMoved.connect(self.on_list_reordered)
@@ -273,27 +286,23 @@ class MainWindow(QMainWindow):
         self.refresh_list()
 
     def keyPressEvent(self, event):
-        if event.key() == Qt.Key.Key_Delete:
-            focus_widget = self.focusWidget()
-            
-            # Case 1: Canvas is focused -> Delete (Clear) Selected Block
-            if focus_widget == self.canvas or focus_widget == self.scroll_area:
-                if self.canvas.selected_region:
-                    sig_idx, start, end = self.canvas.selected_region
-                    if 0 <= sig_idx < len(self.project.signals):
-                        signal = self.project.signals[sig_idx]
-                        # Reset range to 'X'
-                        for t in range(start, end + 1):
-                            signal.set_value_at(t, 'X')
-                        
-                        # Refresh Editor Panel if it's showing this signal
-                        if self.editor_panel.current_signal == signal:
-                            self.editor_panel.load_target(signal, start, self.project.total_cycles)
-                            
-                        self.canvas.update()
-                return
+        if self.canvas.hasFocus():
+             if event.key() == Qt.Key.Key_Delete:
+                 # Delete selected BUS block if any
+                 if self.canvas.selected_regions:
+                     for (sig_idx, start, end) in self.canvas.selected_regions:
+                         if 0 <= sig_idx < len(self.project.signals):
+                             sig = self.project.signals[sig_idx]
+                             if sig.type == SignalType.BUS:
+                                 for t in range(start, end + 1):
+                                     sig.set_value_at(t, 'X')
+                     
+                     self.canvas.data_changed.emit()
+                     self.canvas.update()
+                     return
 
-            # Case 2: Signal list is focused -> Remove Signal
+        # Fallback to List Deletion
+        if event.key() == Qt.Key.Key_Delete:
             if not isinstance(focus_widget, QLineEdit):
                 # Ensure we don't accidentally delete when typing in some other input
                 # Checking list focus or general non-input focus
@@ -625,7 +634,8 @@ class MainWindow(QMainWindow):
             'bg_color': settings_store.value("export_bg_color", "#1e1e1e"),
             'font_color': settings_store.value("export_font_color", "#e0e0e0"),
             'font_size': int(settings_store.value("export_font_size", 10)),
-            'format': settings_store.value("export_format", "PNG")
+            'format': settings_store.value("export_format", "PNG"),
+            'filename': settings_store.value("export_filename", "waveform")
         }
         
         dlg = ExportDialog(self.canvas, initial_settings, self)
@@ -642,14 +652,86 @@ class MainWindow(QMainWindow):
             settings_store.setValue("export_font_color", settings['font_color'].name())
             settings_store.setValue("export_font_size", settings['font_size'])
             settings_store.setValue("export_format", settings['format'])
+            settings_store.setValue("export_filename", settings['filename'])
             
             # Render and Save
             img = self.canvas.render_to_image_object(settings)
             
             path = output_dir
             fmt = settings['format']
-            if not path.lower().endswith(f".{fmt.lower()}"):
-                import os
-                path = os.path.join(path, f"waveform.{fmt.lower()}")
-                
-            img.save(path)
+            filename = settings.get('filename', 'waveform')
+            
+            # Construct full path
+            import os
+            full_path = os.path.join(path, f"{filename}.{fmt.lower()}")
+            
+            img.save(full_path)
+            QMessageBox.information(self, "Success", f"Image saved to:\n{full_path}")
+
+    def keyPressEvent(self, event):
+        if self.canvas.hasFocus():
+             if event.key() == Qt.Key.Key_Delete:
+                 # Delete selected BUS block if any
+                 if self.canvas.selected_regions:
+                     for (sig_idx, start, end) in self.canvas.selected_regions:
+                         if 0 <= sig_idx < len(self.project.signals):
+                             sig = self.project.signals[sig_idx]
+                             if sig.type == SignalType.BUS:
+                                 for t in range(start, end + 1):
+                                     sig.set_value_at(t, 'X')
+                     
+                     self.canvas.data_changed.emit()
+                     self.canvas.update()
+                     return
+
+        # Fallback to List Deletion
+        if event.key() == Qt.Key.Key_Delete:
+             curr = self.signal_list.currentRow()
+             if curr >= 0:
+                 self.remove_signal()
+
+    def save_project_file(self):
+        file_path, _ = QFileDialog.getSaveFileName(self, "Save Project", "", "JSON Files (*.json)")
+        if not file_path:
+            return
+            
+        try:
+            data = self.project.to_dict()
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=4)
+            QMessageBox.information(self, "Success", "Project saved successfully!")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to save project: {e}")
+
+    def load_project_file(self):
+        file_path, _ = QFileDialog.getOpenFileName(self, "Load Project", "", "JSON Files (*.json)")
+        if not file_path:
+            return
+            
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            # Reconstruct Project
+            self.project = Project.from_dict(data)
+            
+            # Rebind Canvas
+            self.canvas.project = self.project
+            
+            # Refresh UI
+            self.refresh_list()
+            self.canvas.update_dimensions()
+            self.canvas.update()
+            
+            # Reset editors
+            self.editor_panel.reset()
+            
+            self.refresh_global_controls()
+
+            QMessageBox.information(self, "Success", "Project loaded successfully!")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to load project: {e}")
+
+    def refresh_global_controls(self):
+        # Trigger updates if possible, or just rely on user interaction
+        pass

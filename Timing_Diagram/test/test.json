@@ -1,0 +1,56 @@
+{
+    "name": "Untitled",
+    "total_cycles": 20,
+    "cycle_width": 40,
+    "signals": [
+        {
+            "name": "i_clk",
+            "type": "CLK",
+            "color": "#00ff00",
+            "values": [],
+            "value_colors": {},
+            "clk_rising_edge": true,
+            "clk_mod": 1,
+            "pinned": false
+        },
+        {
+            "name": "i_rst",
+            "type": "INPUT",
+            "color": "#ff5555",
+            "values": [],
+            "value_colors": {},
+            "clk_rising_edge": true,
+            "clk_mod": 1,
+            "pinned": false
+        },
+        {
+            "name": "ADDR",
+            "type": "BUS",
+            "color": "#00d2ff",
+            "values": [
+                "X",
+                "X",
+                "X",
+                "123",
+                "45",
+                "X",
+                "X",
+                "555"
+            ],
+            "value_colors": {},
+            "clk_rising_edge": true,
+            "clk_mod": 1,
+            "pinned": false
+        },
+        {
+            "name": "DATA_RD",
+            "type": "BUS",
+            "color": "#ffff00",
+            "values": [],
+            "value_colors": {},
+            "clk_rising_edge": true,
+            "clk_mod": 1,
+            "pinned": false
+        }
+    ]
+}

@@ -60,6 +60,16 @@ class WaveformCanvas(QWidget):
         self.row_height = 40
         self.header_height = 30
         
+        self.header_height = 30
+        
+        # Long Press Drag State
+        from PyQt6.QtCore import QTimer
+        self.long_press_timer = QTimer()
+        self.long_press_timer.setSingleShot(True)
+        self.long_press_timer.timeout.connect(self.on_long_press)
+        self.press_start_pos = None
+        self.press_context = None # {sig_idx, cycle_idx, val, original_region}
+        
         self.update_dimensions()
 
     @property
@@ -135,8 +145,16 @@ class WaveformCanvas(QWidget):
             # CHANGED: preview_signal_values is now a dict {sig_idx: list}
             if self.is_moving_block and self.preview_signal_values and i in self.preview_signal_values:
                 override = self.preview_signal_values[i]
+            
+            # Highlight Dragged Blocks:
+            # We convert float preview regions to integer intervals for highlighting
+            highlights = []
+            if self.is_moving_block and hasattr(self, 'preview_selection_regions') and self.preview_selection_regions:
+                 for (s_idx, start, end) in self.preview_selection_regions:
+                     if s_idx == i:
+                         highlights.append((int(round(start)), int(round(end))))
                 
-            self.draw_signal(painter, signal, y, is_dragging=False, override_values=override)
+            self.draw_signal(painter, signal, y, is_dragging=False, override_values=override, highlight_ranges=highlights)
 
         # Draw the dragged signal last (on top) - For Reordering
         if self.dragging_signal_index is not None:
@@ -279,7 +297,7 @@ class WaveformCanvas(QWidget):
             painter.setPen(QColor("#333333"))
             painter.drawLine(x, 0, x, height)
 
-    def draw_signal(self, painter: QPainter, signal: Signal, y: int, is_dragging=False, override_values=None, width=None, text_color=None):
+    def draw_signal(self, painter: QPainter, signal: Signal, y: int, is_dragging=False, override_values=None, highlight_ranges=None, width=None, text_color=None):
         if width is None: width = self.width()
         
         if is_dragging:
@@ -350,7 +368,26 @@ class WaveformCanvas(QWidget):
                 path = QPainterPath() # New path per block for bus
                 
                 # Always use base signal color for outline (User Request)
-                painter.setPen(QPen(base_color, 2))
+                # Unless Highlighted
+                is_highlighted = False
+                if highlight_ranges:
+                    # Check if this block (start_t, end_t) is inside any highlight range
+                    # Relaxed check: overlap or containment
+                    for (hs, he) in highlight_ranges:
+                        # If block is roughly within the highlight range
+                        # highlight range is the box. Block should be inside.
+                        if start_t >= hs and end_t <= he:
+                            is_highlighted = True
+                            break
+                        # Overlap check (safer for edge cases)
+                        if max(start_t, hs) <= min(end_t, he):
+                             is_highlighted = True
+                             break
+                
+                if is_highlighted:
+                     painter.setPen(QPen(QColor("#ffffff"), 3)) # Bold White
+                else:
+                     painter.setPen(QPen(base_color, 2))
                 
                 if val == 'Z':
                     painter.drawLine(x1, mid_y, x2, mid_y)
@@ -499,6 +536,17 @@ class WaveformCanvas(QWidget):
     def mouseMoveEvent(self, event):
         x = event.pos().x()
         y = event.pos().y()
+        
+        if self.long_press_timer.isActive():
+            diff = (event.pos() - self.paint_start_pos).manhattanLength() if self.paint_start_pos else 0
+            # Also check distance from initial click for canvas items
+            if self.press_start_pos:
+                 diff = max(diff, (event.pos() - self.press_start_pos).manhattanLength())
+            
+            if diff > 5:
+                # print(f"DEBUG: Timer Cancelled. Diff: {diff}")
+                self.long_press_timer.stop()
+                # If we moved, it's a normal drag (Duration Edit or Paint), NOT a long press move
         
         if self.paint_start_pos:
             diff = (event.pos() - self.paint_start_pos).manhattanLength()
@@ -838,9 +886,55 @@ class WaveformCanvas(QWidget):
         self.hover_pos = None
         self.update()
 
+    def on_long_press(self):
+        # Activated after 2 seconds
+        if not self.press_context: 
+            return
+        
+        # Trigger Move Mode
+        self.is_moving_block = True
+        self.is_editing_duration = False # Cancel duration edit
+        
+        ctx = self.press_context
+        self.move_drag_start_cycle = ctx['cycle_idx']
+        self.move_target_cycle = ctx['cycle_idx']
+        self.drag_start_x = self.press_start_pos.x()
+        
+        # Auto-select if not yet (should be covered by Press, but ensure)
+        # If the item under mouse is not in selected_regions, select it.
+        clicked_region = ctx['region']
+        if clicked_region not in self.selected_regions:
+            self.selected_regions = [clicked_region]
+            
+        # Initialize Snapshots
+        self.moving_blocks_snapshot = {}
+        for r_sig, r_start, r_end in self.selected_regions:
+            r_signal = self.project.signals[r_sig]
+            if r_sig not in self.moving_blocks_snapshot:
+                self.moving_blocks_snapshot[r_sig] = list(r_signal.values)
+            vals = [r_signal.get_value_at(t) for t in range(r_start, r_end+1)]
+            key = f"{r_sig}_{r_start}_{r_end}"
+            self.moving_blocks_snapshot[key] = vals
+
+        # Initialize Preview
+        self.preview_selection_regions = []
+        for (s, st, en) in self.selected_regions:
+            self.preview_selection_regions.append((s, float(st), float(en)))
+            
+        self.move_block_info = {
+           'sig_idx': ctx['sig_idx'],
+           'start': clicked_region[1],
+           'end': clicked_region[2],
+           'val': ctx['val']
+        }
+        
+        self.setCursor(Qt.CursorShape.SizeAllCursor) # Visual feedback
+        self.update()
+
     def mousePressEvent(self, event):
         x = event.pos().x()
         y = event.pos().y()
+        self.press_start_pos = event.pos()
         
         sig_idx = (y - self.header_height) // self.row_height
         
@@ -872,8 +966,6 @@ class WaveformCanvas(QWidget):
                     # --- Bus Logic ---
                     if signal.type == SignalType.BUS:
                         
-                        # A. Check for CTRL+Drag (Move), but now check modifiers for SELECTION too
-                        
                         val = signal.get_value_at(cycle_idx)
                         
                         # Find block bounds for the clicked item
@@ -903,88 +995,34 @@ class WaveformCanvas(QWidget):
                             self.update()
                             return
 
-                        # 2. HANDLING MOVE (Ctrl + Click + Drag)
-                        # If we click on an item that is ALREADY selected, we might be starting a move on the whole group.
-                        # If Ctrl is pressed, we definitely start move.
-                        
-                        if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
-                            # Start Move
-                            self.is_moving_block = True
-                            self.move_drag_start_cycle = cycle_idx
-                            self.move_target_cycle = cycle_idx
-                            self.drag_start_x = x # Record pixel start
-                            
-                            # Initialize preview regions immediately (Float = Int initially)
-                            self.preview_selection_regions = []
-                            for (s, st, en) in self.selected_regions:
-                                self.preview_selection_regions.append((s, float(st), float(en))) # Use float!
-                            
-                            # Auto-select if not yet
-                            if clicked_region not in self.selected_regions:
-                                self.selected_regions = [clicked_region]
-                                
-                            # Prepare Snapshots
-                            self.moving_blocks_snapshot = {}
-                            
-                            # Snapshot full signals for all affected rows
-                            for r_sig, r_start, r_end in self.selected_regions:
-                                r_signal = self.project.signals[r_sig]
-                                if r_sig not in self.moving_blocks_snapshot:
-                                    self.moving_blocks_snapshot[r_sig] = list(r_signal.values)
-                                    
-                                # Also key specific blocks if needed, but snapshot is enough if we filter by regions
-                                vals = [r_signal.get_value_at(t) for t in range(r_start, r_end+1)]
-                                key = f"{r_sig}_{r_start}_{r_end}"
-                                self.moving_blocks_snapshot[key] = vals
-
-                            # Set primary info for legacy compatibility / drawing guide
-                            self.move_block_info = {
-                                'sig_idx': sig_idx,
-                                'start': o_start,
-                                'end': o_end,
-                                'val': val,
-                                'values': [signal.get_value_at(t) for t in range(o_start, o_end+1)],
-                                'color': signal.value_colors.get(val, "#00aaaa")
-                            }
-                            # Legacy snapshot for single preview logic (fallback)
-                            self.edit_initial_values = list(signal.values) 
-
-                            self.update()
-                            return
+                        # 2. START LONG PRESS TIMER (Potential Move)
+                        self.press_context = {
+                            'sig_idx': sig_idx,
+                            'cycle_idx': cycle_idx,
+                            'val': val,
+                            'region': clicked_region
+                        }
+                        self.long_press_timer.start(500) # 0.5 seconds
 
                         # 3. STANDARD CLICK (Replace Selection)
-                        # If just dragging (no modifier), we usually do duration edit or just select.
-                        # Existing logic: Click replaces selection.
-                        
                         # Only reset selection if we didn't just add/toggle
-                        self.selected_regions = [clicked_region]
+                        # Note: If we are clicking an already selected item, we might be intending to drag it (Move).
+                        # But we don't know yet.
+                        # If we clear selection now, we lose the multi-selection context for the drag.
+                        # CHECK: Is clicked item in current selection?
+                        
+                        if clicked_region not in self.selected_regions:
+                            self.selected_regions = [clicked_region]
+                        
                         self.bus_selected.emit(sig_idx, cycle_idx)
                         
-                        # Continue to Duration Edit Logic for the clicked item
-                        val = signal.get_value_at(cycle_idx)
+                        # SETUP DURATION EDIT (Default Drag Action)
+                        # This will be overridden if Long Press fires
                         if True: # Always allow
                             self.is_editing_duration = True
                             self.edit_signal_index = sig_idx
                             self.edit_start_cycle = cycle_idx
                             self.edit_value = val
-                            
-                            # Scan for Original Block Boundaries
-                            o_start = cycle_idx
-                            o_end = cycle_idx
-                            
-                            # Only expand selection for defined values, treat 'X' as single cycle
-                            if val != 'X':
-                                for t in range(cycle_idx, -1, -1):
-                                    if signal.get_value_at(t) == val:
-                                        o_start = t
-                                    else:
-                                        break
-                                
-                                for t in range(cycle_idx, self.project.total_cycles):
-                                    if signal.get_value_at(t) == val:
-                                        o_end = t
-                                    else:
-                                        break
                             
                             self.edit_orig_start = o_start
                             self.edit_orig_end = o_end
@@ -1000,7 +1038,7 @@ class WaveformCanvas(QWidget):
                                 self.edit_mode = 'START'
                             else:
                                 self.edit_mode = 'END'
-                            
+                           
                                 
         elif event.button() == Qt.MouseButton.RightButton:
              # Check for Right Click -> X (For Bus?)
@@ -1050,6 +1088,9 @@ class WaveformCanvas(QWidget):
                          return
                             
     def mouseReleaseEvent(self, event):
+        self.long_press_timer.stop()
+        self.setCursor(Qt.CursorShape.ArrowCursor)
+        
         if self.is_moving_block:
             
             # Apply Previews to Real Signals

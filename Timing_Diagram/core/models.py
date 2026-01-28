@@ -77,3 +77,23 @@ class Project:
     def remove_signal(self, index: int):
         if 0 <= index < len(self.signals):
             self.signals.pop(index)
+
+    def to_dict(self):
+        return {
+            'name': self.name,
+            'total_cycles': self.total_cycles,
+            'cycle_width': self.cycle_width,
+            'signals': [s.to_dict() for s in self.signals]
+        }
+
+    @classmethod
+    def from_dict(cls, data):
+        p = cls(
+            name=data.get('name', 'Untitled'),
+            total_cycles=data.get('total_cycles', 20),
+            cycle_width=data.get('cycle_width', 40)
+        )
+        signals_data = data.get('signals', [])
+        for s_data in signals_data:
+            p.add_signal(Signal.from_dict(s_data))
+        return p
