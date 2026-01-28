@@ -1,0 +1,117 @@
+/* Global "Tech" Theme */
+QWidget {
+    background-color: #121212;
+    color: #e0e0e0;
+    font-family: "Segoe UI", "Roboto", sans-serif;
+    font-size: 14px;
+}
+
+/* Scrollbars */
+QScrollBar:vertical {
+    border: none;
+    background: #1e1e1e;
+    width: 8px;
+    margin: 0px 0px 0px 0px;
+}
+QScrollBar::handle:vertical {
+    background: #333;
+    min-height: 20px;
+    border-radius: 4px;
+}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    border: none;
+    background: none;
+}
+
+/* Group Boxes / Containers */
+QGroupBox {
+    border: 1px solid #333;
+    margin-top: 20px;
+    border-radius: 4px;
+}
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top center;
+    padding: 0 10px;
+    color: #00f3ff; /* Neon Cyan */
+    font-weight: bold;
+}
+
+/* Buttons */
+QPushButton {
+    background-color: #1e1e1e;
+    border: 1px solid #00f3ff;
+    color: #00f3ff;
+    padding: 8px 16px;
+    border-radius: 4px;
+    font-weight: bold;
+    text-transform: uppercase;
+}
+QPushButton:hover {
+    background-color: rgba(0, 243, 255, 0.1);
+    border: 1px solid #ffffff;
+    color: #ffffff;
+}
+QPushButton:pressed {
+    background-color: rgba(0, 243, 255, 0.2);
+}
+QPushButton:disabled {
+    border: 1px solid #555;
+    color: #555;
+}
+
+/* Line Edits & Spin Boxes */
+QLineEdit, QSpinBox, QDoubleSpinBox {
+    background-color: #000000;
+    border: 1px solid #333;
+    color: #00f3ff;
+    padding: 5px;
+    border-radius: 2px;
+}
+QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus {
+    border: 1px solid #00f3ff;
+}
+
+/* Labels */
+QLabel {
+    color: #cccccc;
+}
+QLabel#header {
+    color: #00f3ff;
+    font-size: 18px;
+    font-weight: bold;
+    letter-spacing: 1px;
+}
+
+/* List Widgets */
+QListWidget {
+    background-color: #000000;
+    border: 1px solid #333;
+    color: #fff;
+}
+QListWidget::item {
+    padding: 10px;
+    border-bottom: 1px solid #1a1a1a;
+}
+QListWidget::item:selected {
+    background-color: rgba(0, 243, 255, 0.1);
+    border-left: 3px solid #00f3ff;
+    color: #fff;
+}
+
+/* Sliders */
+QSlider::groove:horizontal {
+    border: 1px solid #333;
+    height: 6px;
+    background: #000;
+    margin: 2px 0;
+    border-radius: 3px;
+}
+QSlider::handle:horizontal {
+    background: #00f3ff;
+    border: 1px solid #00f3ff;
+    width: 14px;
+    height: 14px;
+    margin: -5px 0;
+    border-radius: 7px;
+}

@@ -1,0 +1,75 @@
+/* Main Window Background */
+QMainWindow {
+    background-color: #1e1e1e;
+    color: #e0e0e0;
+}
+
+/* Generic Widget Background */
+QWidget {
+    background-color: #1e1e1e;
+    color: #e0e0e0;
+    font-family: 'Segoe UI', sans-serif;
+    font-size: 10pt;
+}
+
+/* Buttons */
+QPushButton {
+    background-color: #2d2d2d;
+    border: 1px solid #00d2ff;
+    border-radius: 4px;
+    padding: 5px 15px;
+    color: #00d2ff;
+    font-weight: bold;
+}
+
+QPushButton:hover {
+    background-color: #00d2ff;
+    color: #1e1e1e;
+}
+
+QPushButton:pressed {
+    background-color: #00a0c0;
+}
+
+/* List/Tree Views (Signal List) */
+QListWidget, QTreeWidget, QTableWidget {
+    background-color: #252526;
+    border: 1px solid #3e3e42;
+    selection-background-color: #00d2ff;
+    selection-color: #1e1e1e;
+    outline: 0;
+}
+
+/* Input Fields */
+QLineEdit, QSpinBox, QComboBox {
+    background-color: #333337;
+    border: 1px solid #3e3e42;
+    padding: 3px;
+    color: #e0e0e0;
+    selection-background-color: #007acc;
+}
+
+QLineEdit:focus {
+    border: 1px solid #00d2ff;
+}
+
+/* Labels */
+QLabel {
+    color: #cccccc;
+}
+
+/* Scrollbars */
+QScrollBar:vertical {
+    border: none;
+    background: #1e1e1e;
+    width: 10px;
+    margin: 0px 0px 0px 0px;
+}
+QScrollBar::handle:vertical {
+    background: #424242;
+    min-height: 20px;
+    border-radius: 5px;
+}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    height: 0px;
+}
