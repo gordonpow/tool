@@ -3,11 +3,24 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                                QFrame, QInputDialog, QListWidgetItem, QComboBox, QLineEdit, QSpinBox, 
                                QColorDialog, QCheckBox, QScrollArea, QFileDialog, QMessageBox)
 import json
-from PyQt6.QtGui import QColor, QPalette
-from PyQt6.QtCore import Qt, QSize
+import colorsys
+import random
+from PyQt6.QtGui import QColor, QPalette, QAction, QKeySequence, QCloseEvent
+from PyQt6.QtCore import Qt, QSize, pyqtSignal, QTime, QTimer
 from core.models import Project, Signal, SignalType
 from ui.editor_panel import BusEditorPanel
 from ui.canvas import WaveformCanvas
+from ui.data_generator_dialog import DataGeneratorDialog
+from core.undo_manager import UndoManager
+
+class PropertyNameLineEdit(QLineEdit):
+    delete_pressed = pyqtSignal()
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Delete:
+            self.delete_pressed.emit()
+        else:
+            super().keyPressEvent(event)
 
 class SignalListItemWidget(QWidget):
     def __init__(self, signal, on_pin_toggle):
@@ -78,8 +91,15 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("IC Waveform Generator - Antigravity")
         self.resize(1300, 800) # Slightly wider
         
+        # State Tracking
+        self.current_project_path = None
+        self.is_dirty = False
+        self.update_title()
+        
+        
         # Data
         self.project = Project()
+        self.undo_manager = UndoManager(self.project)
         
         # Load Pinned Signals
         loaded = self.load_pinned_signals()
@@ -91,6 +111,15 @@ class MainWindow(QMainWindow):
             self.project.add_signal(Signal(name="ADDR", type=SignalType.BUS, color="#00d2ff"))
             self.project.add_signal(Signal(name="DATA_RD", type=SignalType.BUS, color="#ffff00"))
         
+        # Settings Store
+        from PyQt6.QtCore import QSettings
+        self.settings = QSettings("Antigravity", "TimingDiagram")
+
+        # Auto Save
+        self.auto_save_timer = QTimer()
+        self.auto_save_timer.timeout.connect(self.perform_auto_save)
+        self.init_auto_save()
+
         # Init UI
         self.init_ui()
 
@@ -125,6 +154,54 @@ class MainWindow(QMainWindow):
         settings.setValue("pinned_signals", json.dumps(pinned_list))
 
     def init_ui(self):
+        # Menu Bar
+        menubar = self.menuBar()
+        setting_menu = menubar.addMenu("Setting") # User requested 'setting' (lowercase handling?) "名称為setting" -> "Setting"
+        
+        pref_action = setting_menu.addAction("Preferences")
+        pref_action.triggered.connect(self.open_settings_dialog)
+        
+        # Unsaved Badge (Top Right)
+        # Standard Window Title doesn't support color, so we use a corner widget
+        self.unsaved_badge = QLabel(" UNSAVED ")
+        self.unsaved_badge.setStyleSheet("background-color: #ff0000; color: white; font-weight: bold; border-radius: 2px;")
+        self.unsaved_badge.setVisible(False)
+        menubar.setCornerWidget(self.unsaved_badge, Qt.Corner.TopRightCorner)
+        
+        # Shortcut for Save
+        save_action = QAction("Save", self)
+        save_action.setShortcut(QKeySequence("Ctrl+S"))
+        save_action.triggered.connect(self.save_project)
+        self.addAction(save_action)
+        
+        # Edit Menu
+        edit_menu = menubar.addMenu("Edit")
+        
+        copy_action = edit_menu.addAction("Copy")
+        copy_action.setShortcut(QKeySequence("Ctrl+C"))
+        copy_action.triggered.connect(lambda: self.canvas.copy_selection())
+        
+        paste_action = edit_menu.addAction("Paste")
+        paste_action.setShortcut(QKeySequence("Ctrl+V"))
+        paste_action.triggered.connect(lambda: self.canvas.paste_selection())
+
+        edit_menu.addSeparator()
+        
+        undo_action = edit_menu.addAction("Undo")
+        undo_action.setShortcut(QKeySequence("Ctrl+Z"))
+        undo_action.triggered.connect(self.perform_undo)
+        
+        redo_action = edit_menu.addAction("Redo")
+        redo_action.setShortcut(QKeySequence("Ctrl+Y"))
+        redo_action.triggered.connect(self.perform_redo)
+        
+        # Tools Menu
+        tools_menu = menubar.addMenu("Tools")
+        
+        gen_action = tools_menu.addAction("Data Generator")
+        gen_action.triggered.connect(self.open_data_generator)
+        gen_action.setShortcut(QKeySequence("Ctrl+G"))
+        
         main_widget = QWidget()
         self.setCentralWidget(main_widget)
         
@@ -144,7 +221,7 @@ class MainWindow(QMainWindow):
         # Save / Load
         sl_layout = QHBoxLayout()
         btn_save = QPushButton("Save Project")
-        btn_save.clicked.connect(self.save_project_file)
+        btn_save.clicked.connect(self.save_project)
         sl_layout.addWidget(btn_save)
         
         btn_load = QPushButton("Load Project")
@@ -176,8 +253,9 @@ class MainWindow(QMainWindow):
         
         # Name
         left_layout.addWidget(QLabel("Name:"))
-        self.name_edit = QLineEdit()
+        self.name_edit = PropertyNameLineEdit()
         self.name_edit.textChanged.connect(self.on_name_changed)
+        self.name_edit.delete_pressed.connect(self.remove_signal)
         left_layout.addWidget(self.name_edit)
         
         # Type
@@ -257,6 +335,7 @@ class MainWindow(QMainWindow):
         
         self.canvas = WaveformCanvas(self.project)
         self.canvas.data_changed.connect(self.canvas.update)
+        self.canvas.data_changed.connect(lambda: self.set_dirty(True))
         # Also refresh list if structure changed (reordering in canvas)
         self.canvas.structure_changed.connect(self.refresh_list)
         
@@ -272,12 +351,29 @@ class MainWindow(QMainWindow):
         self.canvas.region_updated.connect(self.on_region_updated)
         self.canvas.cycles_changed.connect(self.on_cycles_changed)
         self.canvas.zoom_changed.connect(self.width_spin.setValue)
+        self.canvas.signal_clicked.connect(self.signal_list.setCurrentRow)
         
         splitter.addWidget(right_panel)
         
+        # Connect Undo Logic
+        # Connect Undo Logic
+        self.canvas.before_change.connect(self.undo_manager.request_snapshot) # Lazy Snapshot (Request)
+        self.canvas.data_changed.connect(self.undo_manager.commit_snapshot) # Commit if requested
+
+        
         # --- Right Panel: Editor ---
         self.editor_panel = BusEditorPanel()
+        self.editor_panel.before_change.connect(self.undo_manager.request_snapshot) # Lazy Snapshot (Request)
+        self.editor_panel.changed.connect(self.undo_manager.commit_snapshot) # Commit if requested
         self.editor_panel.changed.connect(self.on_editor_changed)
+        self.editor_panel.navigation_requested.connect(self.canvas.move_selection)
+        
+        # Connect Explicit Copy/Paste Signals from Editor (since shortcuts might be blocked)
+        self.editor_panel.copy_requested.connect(self.canvas.copy_selection)
+        self.editor_panel.paste_requested.connect(self.canvas.paste_selection)
+        self.editor_panel.undo_requested.connect(self.perform_undo)
+        self.editor_panel.redo_requested.connect(self.perform_redo)
+        
         self.editor_panel.mode_combo.currentIndexChanged.connect(self.on_editor_mode_changed)
         layout.addWidget(self.editor_panel) # Not in splitter, fixed right? Or in splitter? User said "Directly on right". Layout usually fine.
         
@@ -286,9 +382,22 @@ class MainWindow(QMainWindow):
         self.refresh_list()
 
     def keyPressEvent(self, event):
+        focus_widget = self.focusWidget()
+
+        # 1. Check if we are currently editing text (QLineEdit focus)
+        if isinstance(focus_widget, QLineEdit):
+            if event.key() == Qt.Key.Key_Delete:
+                 # Fallthrough to delete logic (don't return, let it hit section 3)
+                 pass
+            else:
+                # Let the QLineEdit handle its own input/backspace
+                super().keyPressEvent(event)
+                return
+
+        # 2. Canvas Deletion Logic
         if self.canvas.hasFocus():
              if event.key() == Qt.Key.Key_Delete:
-                 # Delete selected BUS block if any
+                 # ... existing canvas delete logic ...
                  if self.canvas.selected_regions:
                      for (sig_idx, start, end) in self.canvas.selected_regions:
                          if 0 <= sig_idx < len(self.project.signals):
@@ -299,16 +408,32 @@ class MainWindow(QMainWindow):
                      
                      self.canvas.data_changed.emit()
                      self.canvas.update()
+                     self.set_dirty(True)
                      return
 
-        # Fallback to List Deletion
-        if event.key() == Qt.Key.Key_Delete:
-            if not isinstance(focus_widget, QLineEdit):
-                # Ensure we don't accidentally delete when typing in some other input
-                # Checking list focus or general non-input focus
-                self.remove_signal()
-        else:
-            super().keyPressEvent(event)
+        # 3. List Item Interaction (Delete & Type-to-Rename)
+        curr = self.signal_list.currentRow()
+        if curr >= 0:
+            # 3a. Deletion
+            if event.key() == Qt.Key.Key_Delete:
+                 self.remove_signal()
+                 return
+
+            # 3b. Type-to-Rename (Auto-focus input)
+            # Check if list has focus OR if we are bubbling up from somewhere
+            # If text is printable and not a special key
+            text = event.text()
+            if text and text.isprintable() and not (event.modifiers() & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.AltModifier)):
+                # Get widget
+                item = self.signal_list.item(curr)
+                if item:
+                    # Redirect to Property Panel Logic
+                    self.name_edit.setFocus()
+                    self.name_edit.setText(text)
+                    return
+
+        # Forward other keys
+        super().keyPressEvent(event)
 
     def on_bus_selected(self, sig_idx, cycle_idx):
         if 0 <= sig_idx < len(self.project.signals):
@@ -352,6 +477,7 @@ class MainWindow(QMainWindow):
         
         # Update Canvas Selection Highlight
         self.canvas.selected_region = (sig_idx, start, end)
+        self.set_dirty(True)
 
     def on_cycles_changed(self, new_total):
         self.cycles_spin.blockSignals(True)
@@ -459,6 +585,7 @@ class MainWindow(QMainWindow):
                  self.canvas.selected_region = (sig_idx, start, end)
 
              self.canvas.update()
+             self.set_dirty(True)
 
     def refresh_list(self):
         # Save selection
@@ -468,12 +595,8 @@ class MainWindow(QMainWindow):
         self.signal_list.blockSignals(True)
         self.signal_list.clear()
         for s in self.project.signals:
-            # pin_mark = "★ " if s.pinned else "" # Deprecated
-            # item = QListWidgetItem(f"{pin_mark}{s.name} [{s.type.name}]")
-            
             item = QListWidgetItem()
             item.setData(Qt.ItemDataRole.UserRole, s) # Store object
-            # self.signal_list.addItem(item) # Add first to list
             
             # Custom Widget
             widget = SignalListItemWidget(s, self.save_pinned_signals)
@@ -496,14 +619,19 @@ class MainWindow(QMainWindow):
              
         if row >= 0:
             signal = self.project.signals[row]
+            # Avoid loop: block signals on name edit if it's just being updated from selection
+            self.name_edit.blockSignals(True)
             self.name_edit.setText(signal.name)
-            # self.color_edit.setText(signal.color) # Removed
+            self.name_edit.blockSignals(False)
+            
             self.color_preview.setStyleSheet(f"background-color: {signal.color}; border: 1px solid #e0e0e0;")
             
             # Set Combo
             idx = self.type_combo.findData(signal.type)
             if idx >= 0:
+                self.type_combo.blockSignals(True)
                 self.type_combo.setCurrentIndex(idx)
+                self.type_combo.blockSignals(False)
             
             # Clock Edge Props
             self.clk_edge_combo.blockSignals(True)
@@ -517,11 +645,9 @@ class MainWindow(QMainWindow):
             self.clk_mod_container.setVisible(signal.type == SignalType.CLK)
             self.clk_mod_spin.blockSignals(False)
             
-            # Clock Mod props
-            self.clk_mod_spin.blockSignals(True)
-            self.clk_mod_spin.setValue(signal.clk_mod)
-            self.clk_mod_container.setVisible(signal.type == SignalType.CLK)
-            self.clk_mod_spin.blockSignals(False)
+            # Auto-Focus and Select Name for quick editing
+            self.name_edit.setFocus()
+            self.name_edit.selectAll()
 
 
     def pick_signal_color(self):
@@ -571,6 +697,7 @@ class MainWindow(QMainWindow):
 
             self.refresh_list()
             self.canvas.update()
+            self.set_dirty(True)
 
     def on_list_reordered(self):
         # Reconstruct project.signals based on list order
@@ -583,28 +710,78 @@ class MainWindow(QMainWindow):
         
         self.project.signals = new_signals
         self.canvas.update()
+        self.set_dirty(True)
 
     def update_global_settings(self):
         self.project.total_cycles = self.cycles_spin.value()
         self.project.cycle_width = self.width_spin.value()
         self.canvas.update_dimensions()
         self.canvas.update()
+        self.set_dirty(True)
+
+    def generate_distinct_color(self):
+        existing_colors = [s.color for s in self.project.signals]
+        
+        best_color = "#00d2ff" 
+        max_min_dist = -1
+        
+        # Try 50 random candidates
+        for _ in range(50):
+            # HSV: Random Hue, High Saturation, High Value (Bright/Vibrant)
+            h = random.random()
+            s = 0.6 + random.random() * 0.4 # 0.6-1.0
+            v = 0.8 + random.random() * 0.2 # 0.8-1.0
+            
+            r, g, b = colorsys.hsv_to_rgb(h, s, v)
+            r, g, b = int(r*255), int(g*255), int(b*255)
+            hex_color = "#{:02x}{:02x}{:02x}".format(r, g, b)
+            
+            if not existing_colors:
+                return hex_color
+            
+            # Find distance to nearest existing color
+            min_dist = float('inf')
+            for ec in existing_colors:
+                try:
+                    ec_clean = ec.lstrip('#')
+                    if len(ec_clean) == 6:
+                        er, eg, eb = tuple(int(ec_clean[i:i+2], 16) for i in (0, 2, 4))
+                        dist = ((r-er)**2 + (g-eg)**2 + (b-eb)**2)**0.5
+                        if dist < min_dist:
+                            min_dist = dist
+                except:
+                    pass
+            
+            if min_dist > max_min_dist:
+                max_min_dist = min_dist
+                best_color = hex_color
+            
+            # Accept if distinct enough
+            if min_dist > 100: 
+                return best_color
+                
+        return best_color
 
     def add_signal(self):
-        self.project.add_signal(Signal(name="New Signal"))
+        self.undo_manager.push_snapshot()
+        new_color = self.generate_distinct_color()
+        self.project.add_signal(Signal(name="New Signal", color=new_color))
         self.refresh_list()
         self.canvas.update_dimensions()
         self.canvas.update()
+        self.set_dirty(True)
         self.signal_list.setCurrentRow(len(self.project.signals) - 1)
 
     def remove_signal(self):
         row = self.signal_list.currentRow()
         if row >= 0:
+            self.undo_manager.push_snapshot()
             self.project.remove_signal(row)
             self.save_pinned_signals()
             self.refresh_list()
             self.canvas.update_dimensions()
             self.canvas.update()
+            self.set_dirty(True)
 
     def on_name_changed(self, text):
         row = self.signal_list.currentRow()
@@ -621,6 +798,7 @@ class MainWindow(QMainWindow):
             
             # Update Canvas
             self.canvas.update()
+            self.set_dirty(True)
 
     def export_image(self):
         from ui.dialogs import ExportDialog
@@ -668,29 +846,63 @@ class MainWindow(QMainWindow):
             img.save(full_path)
             QMessageBox.information(self, "Success", f"Image saved to:\n{full_path}")
 
-    def keyPressEvent(self, event):
-        if self.canvas.hasFocus():
-             if event.key() == Qt.Key.Key_Delete:
-                 # Delete selected BUS block if any
-                 if self.canvas.selected_regions:
-                     for (sig_idx, start, end) in self.canvas.selected_regions:
-                         if 0 <= sig_idx < len(self.project.signals):
-                             sig = self.project.signals[sig_idx]
-                             if sig.type == SignalType.BUS:
-                                 for t in range(start, end + 1):
-                                     sig.set_value_at(t, 'X')
-                     
-                     self.canvas.data_changed.emit()
-                     self.canvas.update()
-                     return
 
-        # Fallback to List Deletion
-        if event.key() == Qt.Key.Key_Delete:
-             curr = self.signal_list.currentRow()
-             if curr >= 0:
-                 self.remove_signal()
 
-    def save_project_file(self):
+    def init_auto_save(self):
+        enabled = self.settings.value("auto_save_enabled", False, type=bool)
+        interval = int(self.settings.value("auto_save_interval", 5))
+        
+        if enabled:
+            self.auto_save_timer.start(interval * 60 * 1000)
+        else:
+            self.auto_save_timer.stop()
+            
+    def open_settings_dialog(self):
+        from ui.dialogs import SettingsDialog
+        dlg = SettingsDialog(self.settings, self)
+        if dlg.exec():
+            settings = dlg.get_settings()
+            
+            # Save
+            self.settings.setValue("auto_save_enabled", settings['enabled'])
+            self.settings.setValue("auto_save_interval", settings['interval'])
+            
+            # Apply
+            self.init_auto_save()
+            
+    def perform_auto_save(self):
+        # Requirement: "Auto save is when there is a save path... if not yet saved, do not save"
+        if not self.current_project_path:
+            return
+            
+        try:
+            data = self.project.to_dict()
+            with open(self.current_project_path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=4)
+            # Auto-save implies data is safe, so we can clear dirty flag?
+            # User requirement: "Automatically save to set path".
+            self.set_dirty(False)
+            self.statusBar().showMessage(f"Auto-saved at {QTime.currentTime().toString('HH:mm:ss')}", 3000)
+        except Exception as e:
+            print(f"Auto-save failed: {e}")
+
+    def save_project(self):
+        # 1. Ctrl+S logic
+        if self.current_project_path:
+            # Overwrite
+            try:
+                data = self.project.to_dict()
+                with open(self.current_project_path, 'w', encoding='utf-8') as f:
+                    json.dump(data, f, indent=4)
+                self.set_dirty(False)
+                self.statusBar().showMessage("Project Saved", 2000)
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to save project: {e}")
+        else:
+            # Save As
+            self.save_project_as()
+
+    def save_project_as(self):
         file_path, _ = QFileDialog.getSaveFileName(self, "Save Project", "", "JSON Files (*.json)")
         if not file_path:
             return
@@ -699,9 +911,16 @@ class MainWindow(QMainWindow):
             data = self.project.to_dict()
             with open(file_path, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=4)
+            
+            self.current_project_path = file_path
+            self.set_dirty(False)
             QMessageBox.information(self, "Success", "Project saved successfully!")
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to save project: {e}")
+
+    # Renamed/Deprecated save_project_file to maintain compatibility if called elsewhere, 
+    # but mapped to save_project_as for the button if that's what we want?
+    # I replaced the button call to save_project, so this is replaced fully.
 
     def load_project_file(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "Load Project", "", "JSON Files (*.json)")
@@ -727,11 +946,132 @@ class MainWindow(QMainWindow):
             self.editor_panel.reset()
             
             self.refresh_global_controls()
+            
+            # Update State
+            self.current_project_path = file_path
+            self.set_dirty(False)
 
             QMessageBox.information(self, "Success", "Project loaded successfully!")
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to load project: {e}")
+            
+    def set_dirty(self, dirty):
+        self.is_dirty = dirty
+        self.update_title()
+        
+    def update_title(self):
+        base_title = "IC Waveform Generator - Antigravity"
+        if self.is_dirty:
+            self.setWindowTitle(base_title + " (Unsaved)")
+            if hasattr(self, 'unsaved_badge'):
+                self.unsaved_badge.setVisible(True)
+        else:
+            self.setWindowTitle(base_title)
+            if hasattr(self, 'unsaved_badge'):
+                self.unsaved_badge.setVisible(False)
+
+    def closeEvent(self, event: QCloseEvent):
+        if self.is_dirty:
+            msg = QMessageBox(self)
+            msg.setWindowTitle("Unsaved Changes")
+            msg.setText("This file has not been saved.")
+            msg.setInformativeText("Do you want to save your changes?")
+            msg.setIcon(QMessageBox.Icon.Warning)
+            
+            # Custom buttons to match user request "save", "no save", "cancel"
+            btn_save = msg.addButton("Save", QMessageBox.ButtonRole.AcceptRole)
+            btn_no_save = msg.addButton("No Save", QMessageBox.ButtonRole.DestructiveRole)
+            btn_cancel = msg.addButton(QMessageBox.StandardButton.Cancel)
+            
+            msg.exec()
+            
+            clicked = msg.clickedButton()
+            
+            if clicked == btn_save:
+                # Try to save
+                self.save_project()
+                # If save failed or was cancelled (in Save As path), check is_dirty
+                if self.is_dirty: 
+                    # Save was cancelled or failed
+                    event.ignore()
+                else:
+                    event.accept()
+            elif clicked == btn_no_save:
+                # No Save -> Close
+                event.accept()
+            else:
+                # Cancel -> Do not close
+                event.ignore()
+        else:
+            event.accept()
 
     def refresh_global_controls(self):
         # Trigger updates if possible, or just rely on user interaction
         pass
+
+    def open_data_generator(self):
+        # Determine initial context from selection
+        sig_idx = None
+        start = 0
+        end = self.project.total_cycles - 1
+        
+        if self.canvas.selected_regions:
+            # Use the last selected region
+            s_idx, s_start, s_end = self.canvas.selected_regions[-1]
+            
+            # Verify if this is a Bus Signal
+            if 0 <= s_idx < len(self.project.signals):
+                if self.project.signals[s_idx].type == SignalType.BUS:
+                    sig_idx = s_idx
+                    start = s_start
+                    end = s_end
+        
+        dlg = DataGeneratorDialog(self.project, self, initial_signal_index=sig_idx, initial_start=start, initial_end=end)
+        self.undo_manager.push_snapshot() # Capture before DataGen applies changes (it applies directly to referenced project? No, usually dialog applies on OK)
+        # Wait, DataGeneratorDialog takes 'project'. Does it modify in-place?
+        # If so, push BEFORE exec is safer, but redundant on cancel.
+        # If it modifies ON ACCEPT (inside exec loop or after), we need to know.
+        # Usually strict dialogs modify on accept. 
+        # If I push here, safe assuming Dialog *already modified*? No.
+        # Checking: DataGeneratorDialog logic.
+        # If logic (dlg.exec) returns True, changes likely applied? 
+        # OR logic is inside separate method? 
+        # If Logic applied inside `accept()`, then state is ALREADY CHANGED here.
+        # Then snapshot is TOO LATE.
+        # I must push BEFORE `exec` to be safe, or check dialog implementation.
+        # For correctness with unknown dialog: Push -> Exec -> if Cancel -> Pop? (UndoManager doesn't have pop_snapshot).
+        # I will push before Exec. If cancel, one extra undo step (No-op). Acceptable.
+        
+        if dlg.exec():
+            self.canvas.update()
+            self.set_dirty(True)
+            self.refresh_global_controls() # If cycles expanded
+
+    def perform_undo(self):
+        if self.undo_manager.undo():
+            self.refresh_ui_after_restore()
+            self.set_dirty(True)
+
+    def perform_redo(self):
+        if self.undo_manager.redo():
+            self.refresh_ui_after_restore()
+            self.set_dirty(True)
+            
+    def refresh_ui_after_restore(self):
+        # 1. Refresh Signal List
+        self.refresh_list()
+        
+        # 2. Update Cycles Control
+        self.cycles_spin.blockSignals(True)
+        self.cycles_spin.setValue(self.project.total_cycles)
+        self.cycles_spin.blockSignals(False)
+        self.canvas.cycles_changed.emit(self.project.total_cycles)
+        
+        # 3. Canvas
+        self.canvas.update()
+        
+        # 4. Editor Panel (Clear)
+        self.canvas.selected_regions = []
+        self.canvas.bus_selected.emit(-1, -1) # Clear selection in UI?
+        # Or keep it? The Undo might have restored a deleted signal.
+        # Clearing selection is safest to avoid Index Errors until we have robust tracking.

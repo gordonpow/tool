@@ -1,7 +1,7 @@
 import sys
 import os
 from PyQt6.QtWidgets import QApplication
-from PyQt6.QtCore import QFile, QTextStream
+from PyQt6.QtCore import QFile, QTextStream, Qt
 
 from ui.mainwindow import MainWindow
 
@@ -16,6 +16,12 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 def main():
+    # Enable High DPI Scaling
+    if hasattr(Qt.ApplicationAttribute, 'AA_EnableHighDpiScaling'):
+        QApplication.setAttribute(Qt.ApplicationAttribute.AA_EnableHighDpiScaling, True)
+    if hasattr(Qt.ApplicationAttribute, 'AA_UseHighDpiPixmaps'):
+        QApplication.setAttribute(Qt.ApplicationAttribute.AA_UseHighDpiPixmaps, True)
+
     app = QApplication(sys.argv)
     app.setStyle("Fusion") # Force Fusion style for consistent cross-platform look
     

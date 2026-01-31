@@ -1,11 +1,68 @@
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QLabel, QLineEdit, 
                                QPushButton, QColorDialog, QHBoxLayout, QSpinBox, QFrame, QComboBox)
-from PyQt6.QtGui import QColor
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtGui import QColor, QKeyEvent, QKeySequence # Added QKeySequence
+from PyQt6.QtCore import pyqtSignal, Qt, QEvent # Added Qt, QEvent
+
+class NavigableLineEdit(QLineEdit):
+    # Signal to request navigation (dx, dy)
+    navigation_requested = pyqtSignal(int, int)
+    copy_requested = pyqtSignal()
+    navigation_requested = pyqtSignal(int, int)
+    copy_requested = pyqtSignal()
+    paste_requested = pyqtSignal()
+    undo_requested = pyqtSignal()
+    redo_requested = pyqtSignal()
+    edit_started = pyqtSignal() # New signal
+    
+    def focusInEvent(self, event):
+        self.edit_started.emit()
+        super().focusInEvent(event)
+
+    
+    def keyPressEvent(self, event: QKeyEvent):
+        # Ignore Ctrl+C and Ctrl+V so they propagate (or trigger global shortcuts)
+        if event.matches(QKeySequence.StandardKey.Copy) or (event.modifiers() & Qt.KeyboardModifier.ControlModifier and event.key() == Qt.Key.Key_C):
+            self.copy_requested.emit()
+            return
+        if event.matches(QKeySequence.StandardKey.Paste) or (event.modifiers() & Qt.KeyboardModifier.ControlModifier and event.key() == Qt.Key.Key_V):
+            self.paste_requested.emit()
+            return
+
+        if event.matches(QKeySequence.StandardKey.Undo) or (event.modifiers() & Qt.KeyboardModifier.ControlModifier and event.key() == Qt.Key.Key_Z):
+            self.undo_requested.emit()
+            self.clearFocus() # Unfocus input
+            event.accept()
+            return
+        if event.matches(QKeySequence.StandardKey.Redo) or (event.modifiers() & Qt.KeyboardModifier.ControlModifier and event.key() == Qt.Key.Key_Y):
+            self.redo_requested.emit()
+            self.clearFocus() # Unfocus input
+            event.accept()
+            return
+
+        if event.key() == Qt.Key.Key_Left:
+            self.navigation_requested.emit(-1, 0)
+        elif event.key() == Qt.Key.Key_Right:
+            self.navigation_requested.emit(1, 0)
+        elif event.key() == Qt.Key.Key_Up:
+            self.navigation_requested.emit(0, -1)
+        elif event.key() == Qt.Key.Key_Down:
+            self.navigation_requested.emit(0, 1)
+        else:
+            super().keyPressEvent(event)
 
 class BusEditorPanel(QFrame):
     # signal: value, color, start, end
     changed = pyqtSignal(str, object, int, int) 
+    # Forward navigation request from input
+    navigation_requested = pyqtSignal(int, int) 
+    
+    # Forward Copy/Paste
+    copy_requested = pyqtSignal()
+    paste_requested = pyqtSignal()
+    undo_requested = pyqtSignal()
+    redo_requested = pyqtSignal()
+    before_change = pyqtSignal() # For Undo
+
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -21,7 +78,7 @@ class BusEditorPanel(QFrame):
         self.init_ui()
         # Default state: Disabled until selection
         self.setEnabled(False)
-
+    
     def init_ui(self):
         layout = QVBoxLayout(self)
         
@@ -31,7 +88,14 @@ class BusEditorPanel(QFrame):
 
         # Value Input
         layout.addWidget(QLabel("Value / Name:"))
-        self.input = QLineEdit()
+        self.input = NavigableLineEdit()
+        self.input.navigation_requested.connect(self.navigation_requested) # Forward signal
+        self.input.copy_requested.connect(self.copy_requested) # Forward
+        self.input.paste_requested.connect(self.paste_requested) # Forward
+        self.input.undo_requested.connect(self.undo_requested)
+        self.input.redo_requested.connect(self.redo_requested)
+        self.input.edit_started.connect(self.before_change) # Snapshot on Focus
+        
         self.input.setPlaceholderText("Enter Value...") # Placeholder
         self.input.textChanged.connect(self.on_text_changed)
         layout.addWidget(self.input)
@@ -81,7 +145,15 @@ class BusEditorPanel(QFrame):
         self.end_spin.valueChanged.connect(self.on_end_changed)
         range_layout.addWidget(self.end_spin)
         
+        range_layout.addWidget(self.end_spin)
+        
         layout.addLayout(range_layout)
+        
+        # Install Event Filters for Undo Snapshot on Focus
+        self.duration_spin.installEventFilter(self)
+        self.start_spin.installEventFilter(self)
+        self.end_spin.installEventFilter(self)
+
         
         # Mode Selection
         self.mode_label = QLabel("Edit Mode:")
@@ -92,6 +164,12 @@ class BusEditorPanel(QFrame):
         layout.addWidget(self.mode_combo)
         
         layout.addStretch()
+
+    def eventFilter(self, source, event):
+        if event.type() == QEvent.Type.FocusIn:
+            if source in [self.duration_spin, self.start_spin, self.end_spin]:
+                 self.before_change.emit()
+        return super().eventFilter(source, event)
 
     def on_text_changed(self, text):
         is_valid = bool(text.strip())
@@ -111,6 +189,7 @@ class BusEditorPanel(QFrame):
         
         if self.current_signal:
              self.emit_change()
+
 
     def load_target(self, signal, cycle_idx, total_cycles):
         self.setEnabled(True) # Enable panel
@@ -229,6 +308,7 @@ class BusEditorPanel(QFrame):
         self.emit_change()
         
     def pick_color(self):
+        self.before_change.emit() # Snapshot before color dialog logic
         color = QColorDialog.getColor()
         if color.isValid():
             self.selected_color = color.name()

@@ -1,4 +1,4 @@
-from PyQt6.QtWidgets import QDialog, QVBoxLayout, QLabel, QLineEdit, QDialogButtonBox, QPushButton, QColorDialog, QHBoxLayout, QSpinBox
+from PyQt6.QtWidgets import QDialog, QVBoxLayout, QLabel, QLineEdit, QDialogButtonBox, QPushButton, QColorDialog, QHBoxLayout, QSpinBox, QCheckBox
 from PyQt6.QtGui import QColor
 from PyQt6.QtCore import pyqtSignal, Qt
 
@@ -272,4 +272,46 @@ class ExportDialog(QDialog):
             'format': self.format_combo.currentText(),
             'filename': self.filename_edit.text(),
             'path': self.path_edit.text()
+        }
+
+class SettingsDialog(QDialog):
+    def __init__(self, settings_store, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Settings")
+        self.resize(300, 200)
+        self.store = settings_store
+        
+        layout = QVBoxLayout(self)
+        
+        # Auto Save Group
+        layout.addWidget(QLabel("Auto Save"))
+        
+        self.auto_save_check = QCheckBox("Enable Auto Save")
+        self.auto_save_check.setChecked(self.store.value("auto_save_enabled", False, type=bool))
+        self.auto_save_check.stateChanged.connect(self.toggle_spinbox)
+        layout.addWidget(self.auto_save_check)
+        
+        row = QHBoxLayout()
+        row.addWidget(QLabel("Interval (minutes):"))
+        self.interval_spin = QSpinBox()
+        self.interval_spin.setRange(1, 120)
+        self.interval_spin.setValue(int(self.store.value("auto_save_interval", 5)))
+        self.interval_spin.setEnabled(self.auto_save_check.isChecked())
+        row.addWidget(self.interval_spin)
+        layout.addLayout(row)
+        
+        layout.addStretch()
+        
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+        
+    def toggle_spinbox(self):
+        self.interval_spin.setEnabled(self.auto_save_check.isChecked())
+        
+    def get_settings(self):
+        return {
+            'enabled': self.auto_save_check.isChecked(),
+            'interval': self.interval_spin.value()
         }

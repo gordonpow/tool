@@ -1,6 +1,6 @@
 {
     "name": "Untitled",
-    "total_cycles": 20,
+    "total_cycles": 22,
     "cycle_width": 40,
     "signals": [
         {
@@ -11,12 +11,12 @@
             "value_colors": {},
             "clk_rising_edge": true,
             "clk_mod": 1,
-            "pinned": false
+            "pinned": true
         },
         {
-            "name": "i_rst",
+            "name": "New Signal",
             "type": "INPUT",
-            "color": "#ff5555",
+            "color": "#7c4aea",
             "values": [],
             "value_colors": {},
             "clk_rising_edge": true,
@@ -24,29 +24,43 @@
             "pinned": false
         },
         {
-            "name": "ADDR",
-            "type": "BUS",
-            "color": "#00d2ff",
+            "name": "New Signal",
+            "type": "INPUT",
+            "color": "#f94732",
+            "values": [],
+            "value_colors": {},
+            "clk_rising_edge": true,
+            "clk_mod": 1,
+            "pinned": false
+        },
+        {
+            "name": "New Signal",
+            "type": "INPUT",
+            "color": "#3799f1",
             "values": [
-                "X",
-                "X",
-                "X",
-                "123",
-                "45",
-                "X",
-                "X",
-                "555"
+                "1",
+                "1",
+                "1",
+                "1",
+                "1",
+                "1",
+                "1",
+                "1",
+                "1",
+                "1",
+                "1",
+                "1",
+                "1",
+                "1",
+                "1",
+                "1",
+                "1",
+                "1",
+                "1",
+                "1",
+                "1",
+                "1"
             ],
-            "value_colors": {},
-            "clk_rising_edge": true,
-            "clk_mod": 1,
-            "pinned": false
-        },
-        {
-            "name": "DATA_RD",
-            "type": "BUS",
-            "color": "#ffff00",
-            "values": [],
             "value_colors": {},
             "clk_rising_edge": true,
             "clk_mod": 1,
