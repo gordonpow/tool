@@ -835,6 +835,19 @@ class WaveformCanvas(QWidget):
              # Restore state from start of drag
              if self.edit_initial_values:
                  signal.values = list(self.edit_initial_values)
+
+             # --- Determine Edit Mode from Drag Direction (If not yet set) ---
+             if self.edit_mode is None:
+                 diff = x - self.press_start_pos.x()
+                 if abs(diff) < 5:
+                     return # Wait for clear movement
+                 
+                 # Drag Left -> Modify Start (Left Edge)
+                 # Drag Right -> Modify End (Right Edge)
+                 if diff < 0:
+                     self.edit_mode = 'START'
+                 else:
+                     self.edit_mode = 'END'
              
              # --- COLLISION DETECTION ---
              # Only active in INSERT Mode. In Overwrite mode, we can drag over anything.
@@ -1210,16 +1223,7 @@ class WaveformCanvas(QWidget):
                             self.edit_orig_end = o_end
                             self.edit_initial_values = list(signal.values)
                             
-                            # Determine Active Edge: Left (Start) or Right (End)
-                            cw = self.project.cycle_width
-                            block_x1 = self.signal_header_width + o_start * cw
-                            block_x2 = self.signal_header_width + (o_end + 1) * cw
-                            mid_x = (block_x1 + block_x2) / 2
-                            
-                            if x <= mid_x:
-                                self.edit_mode = 'START'
-                            else:
-                                self.edit_mode = 'END'
+                            self.edit_mode = None
                         else:
                             self.is_editing_duration = False
                            
