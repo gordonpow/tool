@@ -1,5 +1,5 @@
 from PyQt6.QtWidgets import QWidget, QScrollArea
-from PyQt6.QtCore import Qt, pyqtSignal, QRect, QPoint, QPointF, QEvent, QRectF
+from PyQt6.QtCore import Qt, pyqtSignal, QRect, QPoint, QPointF, QEvent
 from PyQt6.QtGui import QPainter, QPen, QColor, QFont, QBrush, QPainterPath, QMouseEvent, QKeySequence
 from core.models import Project, Signal, SignalType
 
@@ -81,10 +81,6 @@ class WaveformCanvas(QWidget):
         self.scroll_timer.timeout.connect(self.process_auto_scroll)
         self.auto_scroll_direction = 0
         
-        # Layout State
-        self.signal_layout = [] # List of {index, y, height, sub_rows, signal}
-        self.expand_rects = {} # Map sig_idx -> QRect for expand buttons
-        
         self.update_dimensions()
 
     @property
@@ -115,86 +111,15 @@ class WaveformCanvas(QWidget):
                    return True
         return False
 
-    def format_value(self, val_str: str, in_base: int, out_base: int) -> str:
-        if val_str in ['X', 'Z', 'x', 'z', '', None]: 
-            return val_str.upper() if val_str else 'X'
-        
-        try:
-            # Parse
-            int_val = int(val_str, in_base)
-            
-            # Format
-            if out_base == 2:
-                return bin(int_val)[2:]
-            elif out_base == 8:
-                return oct(int_val)[2:]
-            elif out_base == 16:
-                return hex(int_val)[2:].upper()
-            else:
-                return str(int_val)
-        except:
-            return val_str # Fallback (e.g. invalid chars for base)
-
-    def refresh_layout(self):
-        """Recalculate Y positions for all signals."""
-        self.signal_layout = [] # List of dict: {index, y, height, sub_rows}
-        current_y = self.header_height
-        
-        for i, signal in enumerate(self.project.signals):
-            h = self.row_height
-            sub_rows = 0
-            
-            if signal.type == SignalType.BUS_DATA and signal.expanded and signal.bus_width > 0:
-                sub_rows = signal.bus_width
-                h += sub_rows * self.row_height
-            
-            self.signal_layout.append({
-                'index': i,
-                'y': current_y,
-                'height': h,
-                'sub_rows': sub_rows,
-                'signal': signal
-            })
-            current_y += h
-            
-        return current_y # Total height
-
-    def get_signal_from_y(self, y: int):
-        """Returns (signal_index, is_sub_row, sub_row_index)"""
-        # Linear search is fine for < 500 signals
-        for item in self.signal_layout:
-            if item['y'] <= y < item['y'] + item['height']:
-                # Found the block
-                # Check if it's main row or sub row
-                rel_y = y - item['y']
-                row_idx = int(rel_y / self.row_height)
-                
-                if row_idx == 0:
-                    return item['index'], False, 0 # Main Bus Row
-                else:
-                    return item['index'], True, row_idx - 1 # Sub Row (Bit index depends on order)
-                    # Visual: Top is Bit N-1, Bottom is Bit 0?
-                    # User: "Down to Up: Q[0]...Q[7]" -> Q[0] at bottom.
-                    # My rendering loop will determine visual order.
-        return None, False, 0
-
-    def update_dimensions(self):
-        total_h = self.refresh_layout()
-        w = self.signal_header_width + self.project.total_cycles * self.project.cycle_width + 50
-        h = total_h + 50
-        self.setMinimumSize(w, h)
-        # Trigger update to use new layout?
-
     def render_to_image_object(self, settings):
         bg_color = settings['bg_color']
         font_color = settings['font_color']
         font_size = settings['font_size']
         
-        # Calculate Dimensions (Force layout refresh)
-        total_h = self.refresh_layout()
+        # Calculate Dimensions
         cw = self.project.cycle_width
         full_w = self.signal_header_width + self.project.total_cycles * cw 
-        full_h = total_h + 1 # +1 to include bottom border
+        full_h = self.header_height + len(self.project.signals) * self.row_height + 1 # +1 to include bottom border
         
         from PyQt6.QtGui import QImage, QPainter
         img = QImage(full_w, full_h, QImage.Format.Format_ARGB32)
@@ -211,12 +136,9 @@ class WaveformCanvas(QWidget):
         # Draw Content
         self.draw_header(painter, settings.get('font_color'), width=full_w, height=full_h)
         
-        for item in self.signal_layout:
-            i = item['index']
-            y = item['y']
-            signal = self.project.signals[i]
-            # render using draw_signal helper
-            self.draw_signal(painter, signal, y, width=full_w, text_color=font_color, signal_index=i)
+        for i, signal in enumerate(self.project.signals):
+            y = self.header_height + i * self.row_height
+            self.draw_signal(painter, signal, y, width=full_w, text_color=font_color)
 
         painter.end()
         return img
@@ -237,32 +159,29 @@ class WaveformCanvas(QWidget):
             if i == self.dragging_signal_index:
                 continue
                 
-            # Use the layout to get the correct Y position and height
-            layout_item = next((item for item in self.signal_layout if item['index'] == i), None)
-            if layout_item:
-                y = layout_item['y']
+            y = self.header_height + i * self.row_height
+            
+            # Check for Preview Override
+            override = None
+            # CHANGED: preview_signal_values is now a dict {sig_idx: list}
+            if self.is_moving_block and self.preview_signal_values and i in self.preview_signal_values:
+                override = self.preview_signal_values[i]
+            
+            # Highlight Dragged Blocks:
+            # We convert float preview regions to integer intervals for highlighting
+            highlights = []
+            if self.is_moving_block and hasattr(self, 'preview_selection_regions') and self.preview_selection_regions:
+                 for (s_idx, start, end) in self.preview_selection_regions:
+                     if s_idx == i:
+                         highlights.append((int(round(start)), int(round(end))))
                 
-                # Check for Preview Override
-                override = None
-                # CHANGED: preview_signal_values is now a dict {sig_idx: list}
-                if self.is_moving_block and self.preview_signal_values and i in self.preview_signal_values:
-                    override = self.preview_signal_values[i]
-                
-                # Highlight Dragged Blocks:
-                # We convert float preview regions to integer intervals for highlighting
-                highlights = []
-                if self.is_moving_block and hasattr(self, 'preview_selection_regions') and self.preview_selection_regions:
-                     for (s_idx, start, end) in self.preview_selection_regions:
-                         if s_idx == i:
-                             highlights.append((int(round(start)), int(round(end))))
-                    
-                self.draw_signal(painter, signal, y, is_dragging=False, override_values=override, highlight_ranges=highlights, signal_index=i)
+            self.draw_signal(painter, signal, y, is_dragging=False, override_values=override, highlight_ranges=highlights)
 
         # Draw the dragged signal last (on top) - For Reordering
         if self.dragging_signal_index is not None:
             signal = self.project.signals[self.dragging_signal_index]
             drag_y = int(self.current_drag_y - self.row_height/2)
-            self.draw_signal(painter, signal, drag_y, is_dragging=True, signal_index=self.dragging_signal_index)
+            self.draw_signal(painter, signal, drag_y, is_dragging=True)
             
             # Draw drop indicator
             drop_idx = self.get_drop_index(self.current_drag_y)
@@ -406,38 +325,22 @@ class WaveformCanvas(QWidget):
             painter.setPen(QColor("#333333"))
             painter.drawLine(x, 0, x, height)
 
-    def draw_signal(self, painter: QPainter, signal: Signal, y: int, is_dragging=False, override_values=None, highlight_ranges=None, width=None, text_color=None, signal_index=-1):
+    def draw_signal(self, painter: QPainter, signal: Signal, y: int, is_dragging=False, override_values=None, highlight_ranges=None, width=None, text_color=None):
         if width is None: width = self.width()
         
         if is_dragging:
             painter.setOpacity(0.8)
             painter.fillRect(0, y, width, self.row_height, QColor("#333333"))
         
-        # Draw Separator
+        # Draw Signal Name
+        name_rect = QRect(0, y, self.signal_header_width - 10, self.row_height)
+        painter.setPen(text_color if text_color else QColor("#e0e0e0"))
+        painter.drawText(name_rect, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, signal.name)
+        
+        # Draw separating line
         if not is_dragging:
             painter.setPen(QColor("#333333"))
             painter.drawLine(0, y + self.row_height, width, y + self.row_height)
-
-        # Draw Signal Name & Expand Button
-        name_rect = QRect(20, y, self.signal_header_width - 30, self.row_height) # Shifted for button
-        painter.setPen(text_color if text_color else QColor("#e0e0e0"))
-        
-        name_str = signal.name
-        if signal.type == SignalType.BUS_DATA and signal.bus_width > 0:
-             # Draw Button
-             btn_rect = QRect(2, y + 10, 16, 16)
-             if signal_index >= 0:
-                 self.expand_rects[signal_index] = btn_rect
-             
-             painter.setPen(QColor("#808080"))
-             painter.drawRect(btn_rect)
-             signer = "-" if signal.expanded else "+"
-             painter.drawText(btn_rect, Qt.AlignmentFlag.AlignCenter, signer)
-             
-             name_str += f" [{signal.display_base}]" # Hint display base
-        
-        painter.setPen(text_color if text_color else QColor("#e0e0e0"))
-        painter.drawText(name_rect, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, name_str)
         
         # Draw Waveform
         cw = self.project.cycle_width
@@ -465,7 +368,7 @@ class WaveformCanvas(QWidget):
         path = QPainterPath()
         
         # --- BUS RENDER LOGIC (Merged) ---
-        if signal.type in [SignalType.BUS_DATA, SignalType.BUS_STATE]:
+        if signal.type == SignalType.BUS:
             # Group consecutive identical values
             groups = []
             if self.project.total_cycles > 0:
@@ -517,109 +420,31 @@ class WaveformCanvas(QWidget):
                 if val == 'Z':
                     painter.drawLine(x1, mid_y, x2, mid_y)
                 else:
-                    # Determine Shape based on Flavor
+                    # Polygon for [start_t, end_t]
+                    # Indent slightly for slant
+                    slant = 5
+                    # Be careful with adjacent blocks
                     
-                    if signal.type == SignalType.BUS_STATE:
-                        # Rounded Rectangle
-                        rect = QRectF(x1, y + 4, x2 - x1, self.row_height - 8)
-                        painter.setBrush(QBrush(QColor(fill_color.red(), fill_color.green(), fill_color.blue(), 100)))
-                        painter.drawRoundedRect(rect, 8, 8)
-                        painter.setBrush(Qt.BrushStyle.NoBrush)
-                    else:
-                        # Standard Hexagon (DATA)
-
-                        slant = 5
-                        poly_pts = [
-                            QPoint(int(x1), int(mid_y)),
-                            QPoint(int(x1 + slant), int(high_y)),
-                            QPoint(int(x2 - slant), int(high_y)),
-                            QPoint(int(x2), int(mid_y)),
-                            QPoint(int(x2 - slant), int(low_y)),
-                            QPoint(int(x1 + slant), int(low_y)),
-                            QPoint(int(x1), int(mid_y))
-                        ]
-                        
-                        # Fill logic
-                        painter.setBrush(QBrush(QColor(fill_color.red(), fill_color.green(), fill_color.blue(), 100)))
-                        painter.drawPolygon(poly_pts)
-                        painter.setBrush(Qt.BrushStyle.NoBrush)
-
-                    # Draw Text - Centered
+                    poly_pts = [
+                        QPoint(int(x1), int(mid_y)),
+                        QPoint(int(x1 + slant), int(high_y)),
+                        QPoint(int(x2 - slant), int(high_y)),
+                        QPoint(int(x2), int(mid_y)),
+                        QPoint(int(x2 - slant), int(low_y)),
+                        QPoint(int(x1 + slant), int(low_y)),
+                        QPoint(int(x1), int(mid_y))
+                    ]
+                    
+                    # Fill logic
+                    # Use the custom fill color with transparency
+                    painter.setBrush(QBrush(QColor(fill_color.red(), fill_color.green(), fill_color.blue(), 100)))
+                    painter.drawPolygon(poly_pts)
+                    painter.setBrush(Qt.BrushStyle.NoBrush)
+                    
+                    # Draw Text - Centered in the whole merged block
                     text_rect = QRect(int(x1), int(high_y), int(x2-x1), int(low_y - high_y))
                     painter.setPen(text_color if text_color else QColor("#ffffff"))
-                    
-                    # Format Value
-                    display_label = self.format_value(val, signal.input_base, signal.display_base)
-                    painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, display_label)
-
-            # --- SUB-ROW RENDERING (If Expanded) ---
-            if signal.expanded and signal.bus_width > 0:
-                # Iterate Bits: MSB (width-1) -> LSB (0)
-                # Visual Row 1 -> width
-                
-                for bit_idx in range(signal.bus_width - 1, -1, -1):
-                    # Visual Offset (1-based index from main row)
-                    row_offset = (signal.bus_width - 1 - bit_idx) + 1
-                    sub_y = y + row_offset * self.row_height
-                    
-                    # Draw Separator
-                    painter.setPen(QColor("#222222"))
-                    painter.drawLine(0, sub_y + self.row_height, width, sub_y + self.row_height)
-                    
-                    # Draw Bit Name
-                    name_rect = QRect(30, sub_y, self.signal_header_width - 40, self.row_height)
-                    painter.setPen(QColor("#aaaaaa"))
-                    painter.drawText(name_rect, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, f"[{bit_idx}]")
-                    
-                    # Draw Binary Waveform for this bit
-                    path_bit = QPainterPath()
-                    bit_high_y = sub_y + 5
-                    bit_low_y = sub_y + self.row_height - 5
-                    
-                    painter.setPen(QPen(base_color, 1)) # Thinner for bits
-                    
-                    for t in range(self.project.total_cycles):
-                        curr_x = start_x + t * cw
-                        next_x = curr_x + cw
-                        
-                        # Get Bit Value
-                        val_str = get_val(t)
-                        bit_val = 0
-                        is_z = False
-                        is_x = False
-                        
-                        if val_str in ['X', 'x', '', None]: is_x = True
-                        elif val_str in ['Z', 'z']: is_z = True
-                        else:
-                            try:
-                                full_int = int(val_str, signal.input_base)
-                                bit_val = (full_int >> bit_idx) & 1
-                            except:
-                                is_x = True # Fail to parse
-                        
-                        if is_x:
-
-                            painter.setPen(QPen(QColor("#ff5555"), 1))
-                            mid_bit = sub_y + self.row_height // 2
-                            # Draw 'X' cross
-                            painter.drawLine(int(curr_x), int(sub_y + 10), int(next_x), int(sub_y + 30))
-                            painter.drawLine(int(curr_x), int(sub_y + 30), int(next_x), int(sub_y + 10))
-                        elif is_z:
-                             painter.setPen(QPen(QColor("#888888"), 1, Qt.PenStyle.DashLine))
-                             mid = sub_y + self.row_height // 2
-                             painter.drawLine(int(curr_x), int(mid), int(next_x), int(mid))
-                        else:
-                             painter.setPen(QPen(base_color, 1))
-                             curr_y_bit = bit_high_y if bit_val else bit_low_y
-                             
-                             if t == 0:
-                                 path_bit.moveTo(curr_x, curr_y_bit)
-                             else:
-                                 path_bit.lineTo(curr_x, curr_y_bit)
-                                 
-                             path_bit.lineTo(next_x, curr_y_bit)
-                    
-                    painter.drawPath(path_bit)
+                    painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, val)
 
         # --- BINARY RENDER LOGIC (Cycle by Cycle usually fine, but path is continuous) ---
         else: 
@@ -768,279 +593,19 @@ class WaveformCanvas(QWidget):
         y = event.pos().y()
         self.last_global_pos = event.globalPosition().toPoint()
         
-        # Update Hover Pos
+        # Update Hover Pos immediately for real-time feedback (Guide Line)
+        # We do this before drag checks so the guide follows even during operations
         if x > self.signal_header_width and y > self.header_height:
             cw = self.project.cycle_width
             h_cycle_idx = (x - self.signal_header_width) // cw
-            h_sig_idx, is_sub, sub_idx = self.get_signal_from_y(y)
+            h_sig_idx = (y - self.header_height) // self.row_height
             
-            if h_sig_idx is not None and 0 <= h_sig_idx < len(self.project.signals) and 0 <= h_cycle_idx < self.project.total_cycles:
+            if 0 <= h_sig_idx < len(self.project.signals) and 0 <= h_cycle_idx < self.project.total_cycles:
                 self.hover_pos = (h_sig_idx, h_cycle_idx)
             else:
                 self.hover_pos = None
         else:
             self.hover_pos = None
-        
-        # --- Auto-Scroll Detection ---
-        is_dragging_any = (self.is_painting or 
-                           self.is_moving_block or 
-                           self.is_editing_duration or 
-                           getattr(self, 'is_selection_sweeping', False) or
-                           self.dragging_signal_index is not None)
-                           
-        if is_dragging_any:
-            parent = self.parent()
-            if parent:
-                vp_pos = self.mapTo(parent, event.pos())
-                vp_rect = parent.rect()
-                
-                margin = 30
-                if vp_pos.x() > vp_rect.width() - margin:
-                    self.auto_scroll_direction = 1
-                    if not self.scroll_timer.isActive():
-                        self.scroll_timer.start()
-                elif vp_pos.x() < margin:
-                    self.auto_scroll_direction = -1
-                    if not self.scroll_timer.isActive():
-                        self.scroll_timer.start()
-                else:
-                    self.auto_scroll_direction = 0
-                    self.scroll_timer.stop()
-        else:
-             self.auto_scroll_direction = 0
-             self.scroll_timer.stop()
-        
-        if self.long_press_timer.isActive():
-            diff = (event.pos() - self.paint_start_pos).manhattanLength() if self.paint_start_pos else 0
-            if self.press_start_pos:
-                 diff = max(diff, (event.pos() - self.press_start_pos).manhattanLength())
-            
-            if diff > 5:
-                self.long_press_timer.stop()
-        
-        # --- IMMEDIATE MOVE ---
-        if getattr(self, 'allow_immediate_move', False) and not self.is_moving_block:
-             diff = (event.pos() - self.press_start_pos).manhattanLength() if self.press_start_pos else 0
-             if diff > 5:
-                  self.start_moving_block()
-                  return 
-        
-        # --- SWEEP SELECTION ---
-        if getattr(self, 'is_selection_sweeping', False):
-            if self.hover_pos:
-                sig_idx, cycle_idx = self.hover_pos
-                if 0 <= sig_idx < len(self.project.signals):
-                    signal = self.project.signals[sig_idx]
-                    o_start, o_end, val = self.get_block_bounds(signal, cycle_idx)
-                    current_region = (sig_idx, o_start, o_end)
-                    
-                    if not self.is_part_of_selection(current_region):
-                        self.selected_regions.append(current_region)
-                        self.update()
-            return
-
-        if self.paint_start_pos:
-            diff = (event.pos() - self.paint_start_pos).manhattanLength()
-            if diff > 5:
-                self.is_painting = True
-                
-            if self.is_painting:
-                # Paint!
-                sig_idx, is_sub, sub_idx = self.get_signal_from_y(y)
-
-                if sig_idx is not None and 0 <= sig_idx < len(self.project.signals):
-                    signal = self.project.signals[sig_idx]
-                    if signal.type in [SignalType.INPUT, SignalType.OUTPUT, SignalType.INOUT]:
-                         cw = self.project.cycle_width
-                         cycle_idx = int((x - self.signal_header_width) / cw)
-                         
-                         if cycle_idx >= 0:
-                             signal.set_value_at(cycle_idx, self.paint_val)
-                             if cycle_idx >= self.project.total_cycles:
-                                 if self.auto_scroll_direction == 0:
-                                     self.project.total_cycles = cycle_idx + 1
-                                     self.cycles_changed.emit(self.project.total_cycles)
-                                     self.update_dimensions()
-
-                             self.data_changed.emit()
-                             self.update()
-                             
-        if self.is_moving_block:
-             cw = self.project.cycle_width
-             raw_delta_px = x - self.drag_start_x
-             delta_float = raw_delta_px / cw
-             delta = int(round(delta_float))
-             
-             self.move_target_cycle = self.move_drag_start_cycle + delta
-             
-             # Re-generate previews for ALL moving blocks
-             self.preview_signal_values = {} 
-             if not hasattr(self, 'move_new_regions_map'):
-                 self.move_new_regions_map = {} 
-             self.move_new_regions_map = {} 
-             
-             signals_to_update = {}
-             sorted_sel = sorted(self.selected_regions, key=lambda r: (r[0], r[1]))
-             
-             for region in sorted_sel:
-                 s_idx = region[0]
-                 if s_idx not in signals_to_update:
-                     signals_to_update[s_idx] = []
-                 signals_to_update[s_idx].append(region)
-             
-             for s_idx, regions in signals_to_update.items():
-                 if s_idx not in self.moving_blocks_snapshot:
-                     continue
-                 
-                 orig_full_values = self.moving_blocks_snapshot[s_idx]
-                 preview = list(orig_full_values)
-                 
-                 # 1. DELETE
-                 regions_desc = sorted(regions, key=lambda r: r[1], reverse=True)
-                 for _, start, end in regions_desc:
-                     if start < len(preview):
-                         safe_end = min(end, len(preview) - 1)
-                         if safe_end >= start:
-                             del preview[start : safe_end + 1]
-
-                 # 2. PREPARE INSERTION
-                 insert_tasks = []
-                 regions_asc = sorted(regions, key=lambda r: r[1])
-                 
-                 for _, start, end in regions_asc:
-                     block_vals = []
-                     if start < len(orig_full_values):
-                         safe_end = min(end, len(orig_full_values) - 1)
-                         block_vals = orig_full_values[start : safe_end + 1]
-                     else:
-                         block_vals = ['X'] * (end - start + 1)
-                         
-                     target_start = start + delta
-                     insert_tasks.append({
-                         'target': target_start,
-                         'values': block_vals
-                     })
-                 
-                 # 3. APPLY INSERTIONS
-                 insert_tasks.sort(key=lambda x: x['target'])
-                 self.move_new_regions_map[s_idx] = []
-                 
-                 for task in insert_tasks:
-                     tgt = task['target']
-                     vals = task['values']
-                     if tgt < 0: tgt = 0
-                     
-                     if tgt > len(preview):
-                         preview.extend(['X'] * (tgt - len(preview)))
-                     
-                     preview[tgt:tgt] = vals
-                     
-                     new_blk_len = len(vals)
-                     self.move_new_regions_map[s_idx].append((tgt, tgt + new_blk_len - 1))
-                 
-                 self.preview_signal_values[s_idx] = preview
-             
-             # Preview Regions Update
-             self.preview_selection_regions = []
-             for (sig_idx, start, end) in self.selected_regions:
-                 n_start = max(0, start + delta_float)
-                 n_end = n_start + (end - start)
-                 self.preview_selection_regions.append((sig_idx, n_start, n_end))
-             
-             self.update()
-             return
-
-        # 1. Handle Duration Dragging
-        if self.is_editing_duration and self.edit_signal_index is not None:
-             self.is_duration_dragged = True
-             cw = self.project.cycle_width
-             current_cycle = int((x - self.signal_header_width) / cw)
-             current_cycle = max(0, min(current_cycle, self.project.total_cycles - 1))
-             
-             signal = self.project.signals[self.edit_signal_index]
-             
-             if self.edit_initial_values:
-                 signal.values = list(self.edit_initial_values)
-
-             if self.edit_mode is None:
-                 diff = x - self.press_start_pos.x()
-                 if abs(diff) < 5: return 
-                 if diff < 0: self.edit_mode = 'START'
-                 else: self.edit_mode = 'END'
-             
-             left_bound = 0
-             right_bound = self.project.total_cycles - 1
-             
-             if self.is_insert_mode:
-                 for t in range(self.edit_orig_start - 1, -1, -1):
-                     val_at_t = self.edit_initial_values[t] if t < len(self.edit_initial_values) else 'X'
-                     if val_at_t != 'X' and val_at_t != self.edit_value:
-                         left_bound = t + 1
-                         break
-                 for t in range(self.edit_orig_end + 1, self.project.total_cycles):
-                     val_at_t = self.edit_initial_values[t] if t < len(self.edit_initial_values) else 'X'
-                     if val_at_t != 'X' and val_at_t != self.edit_value:
-                         right_bound = t - 1
-                         break
-             
-             delta = current_cycle - self.edit_start_cycle
-             final_start = self.edit_orig_start
-             final_end = self.edit_orig_end
-             
-             if self.edit_mode == 'END':
-                 target = self.edit_orig_end + delta
-                 final_end = max(self.edit_orig_start, min(target, right_bound))
-                 final_start = self.edit_orig_start
-                 
-                 for t in range(final_start, final_end + 1):
-                     signal.set_value_at(t, self.edit_value)
-                 if final_end < self.edit_orig_end:
-                     for t in range(final_end + 1, self.edit_orig_end + 1):
-                         signal.set_value_at(t, 'X')
-                         
-             elif self.edit_mode == 'START':
-                 target = self.edit_orig_start + delta
-                 final_start = max(left_bound, min(target, self.edit_orig_end))
-                 final_end = self.edit_orig_end
-                 
-                 for t in range(final_start, final_end + 1):
-                     signal.set_value_at(t, self.edit_value)
-                 if final_start > self.edit_orig_start:
-                     for t in range(self.edit_orig_start, final_start):
-                         signal.set_value_at(t, 'X')
-             
-             self.data_changed.emit()
-             self.region_updated.emit(self.edit_signal_index, final_start, final_end)
-             self.update()
-             return
-
-        if self.reorder_candidate_idx is not None:
-             diff = (event.pos() - self.paint_start_pos).manhattanLength()
-             if diff > 5:
-                 self.dragging_signal_index = self.reorder_candidate_idx
-                 self.reorder_candidate_idx = None
-                 self.current_drag_y = y
-                 self.update()
-
-        # 2. Handle Reorder Dragging
-        if self.dragging_signal_index is not None:
-            self.current_drag_y = y
-            self.update()
-            return
-        
-        # 3. Handle Hover
-        if x > self.signal_header_width and y > self.header_height:
-            cw = self.project.cycle_width
-            cycle_idx = (x - self.signal_header_width) // cw
-            sig_idx, _, _ = self.get_signal_from_y(y)
-            
-            if sig_idx is not None and 0 <= sig_idx < len(self.project.signals) and 0 <= cycle_idx < self.project.total_cycles:
-                self.hover_pos = (sig_idx, cycle_idx)
-                self.update()
-                return
-
-        self.hover_pos = None
-        self.update()
         
         # --- Auto-Scroll Detection ---
         # Only if dragging something
@@ -1089,7 +654,7 @@ class WaveformCanvas(QWidget):
                 # If we moved, it's a normal drag (Duration Edit or Paint), NOT a long press move
         
         # --- IMMEDIATE MOVE (Multi-Selection) ---
-        if getattr(self, 'allow_immediate_move', False) and not self.is_moving_block and not self.is_editing_duration:
+        if getattr(self, 'allow_immediate_move', False) and not self.is_moving_block:
              diff = (event.pos() - self.press_start_pos).manhattanLength() if self.press_start_pos else 0
              if diff > 5:
                   self.start_moving_block()
@@ -1485,13 +1050,8 @@ class WaveformCanvas(QWidget):
         self.update()
 
     def on_long_press(self):
-        # Activated after Timer -> Switch to Resize Mode (Duration Edit)
-        self.is_moving_block = False
-        self.is_editing_duration = True
-        
-        # Cursor Feedback
-        self.setCursor(Qt.CursorShape.SizeHorCursor)
-        self.update()
+        # Activated after Timer
+        self.start_moving_block()
 
     def mousePressEvent(self, event):
         self.setFocus() # Ensure we get keyboard events (e.g. keyPress)
@@ -1500,28 +1060,9 @@ class WaveformCanvas(QWidget):
         y = event.pos().y()
         self.press_start_pos = event.pos()
         
-        # 1. Expand Button Interaction
-        if self.expand_rects:
-            for s_idx, rect in self.expand_rects.items():
-                if rect.contains(event.pos()):
-                    # Toggle Expand
-                    if 0 <= s_idx < len(self.project.signals):
-                        sig = self.project.signals[s_idx]
-                        sig.expanded = not sig.expanded
-                        
-                        # "Clicking + converts ... to binary" -> Set Display Base to 2
-                        if sig.expanded:
-                            sig.display_base = 2
-                        
-                        self.structure_changed.emit()
-                        self.update_dimensions()
-                        self.update()
-                        return
+        sig_idx = (y - self.header_height) // self.row_height
         
-        # 2. Get Target Signal
-        sig_idx, is_sub, sub_idx = self.get_signal_from_y(y)
-        
-        if sig_idx is not None and 0 <= sig_idx < len(self.project.signals) and x > self.signal_header_width:
+        if 0 <= sig_idx < len(self.project.signals) and x > self.signal_header_width:
              signal = self.project.signals[sig_idx]
              
              # --- New: Drag-to-Paint & Click Toggle (Binary) ---
@@ -1539,7 +1080,7 @@ class WaveformCanvas(QWidget):
         
         if event.button() == Qt.MouseButton.LeftButton:
             
-            if sig_idx is not None and 0 <= sig_idx < len(self.project.signals):
+            if 0 <= sig_idx < len(self.project.signals):
                 # Check for Drag Reorder (Click on Header/Name area)
                 if x < self.signal_header_width:
                      # Selection happens immediately
@@ -1618,35 +1159,6 @@ class WaveformCanvas(QWidget):
                             'region': clicked_region
                         }
                         
-                        # --- "Center Split" Limit Logic (User Request) ---
-                        # Determine if we are interacting with Start or End edge based on cursor position relative to block center.
-                        # Logic:
-                        # Center = Start + (Length / 2.0)
-                        # Cursor < Center -> Edit Left Edge (START)
-                        # Cursor > Center -> Edit Right Edge (END)
-                        
-                        cw = self.project.cycle_width
-                        cycle_float = (x - self.signal_header_width) / cw
-                        
-                        region_start = o_start
-                        region_len = o_end - o_start + 1
-                        center_cycle = region_start + (region_len / 2.0)
-                        
-                        # Pre-determine edit mode
-                        if region_len >= 2:
-                            # Multi-Cycle: Use Center Split Logic (Positional)
-                            if cycle_float < center_cycle:
-                                self.edit_mode = 'START'
-                            else:
-                                self.edit_mode = 'END'
-                        else:
-                            # Single Cycle: Use Drag Direction (Dynamic)
-                            # Leave edit_mode as None, let mouseMoveEvent determine it based on movement delta
-                            self.edit_mode = None
-                            
-                        # Store this for mouseMove to pick up immediately without waiting for diff
-                        # (But we still wait for diff > 5 to confirm it is a drag, not just a click)
-                        
                         # Check for Immediate Move Condition 
                         # Allow immediate move ONLY if it is a Multi-Selection (User Request).
                         # Single selection (or just clicking one item) requires Long Press.
@@ -1669,17 +1181,14 @@ class WaveformCanvas(QWidget):
                                          is_multi_block = True
                                          break
                         
-                        # Check for Immediate Move Condition 
-                        # Allow immediate move for any valid selection (User Request: Drag = Move)
-                        can_move_immediately = self.is_part_of_selection(clicked_region)
+                        can_move_immediately = is_multi_block and self.is_part_of_selection(clicked_region)
                         self.allow_immediate_move = can_move_immediately
                         
-                        if can_move_immediately:
-                             # Set up Move context but don't start yet (wait for drag)
+                        if not self.allow_immediate_move:
+                             self.long_press_timer.start(500) # 1.0 seconds for Single Item
+                        else:
+                             # We do NOT start the timer, but set flag to allow drag in mouseMove
                              pass
-                             
-                        # Always start timer for potential Resize (Long Press)
-                        self.long_press_timer.start(500) 
 
                         # 3. STANDARD CLICK (Replace Selection)
                         # Only reset selection if we didn't just add/toggle
@@ -1700,19 +1209,46 @@ class WaveformCanvas(QWidget):
                         
                         self.bus_selected.emit(sig_idx, cycle_idx)
                         
-                        # SETUP DURATION EDIT CONTEXT (But do NOT enable it yet)
-                        # It will be enabled ONLY if Long Press fires
-                        self.is_editing_duration = False
-                        self.is_duration_dragged = False 
-                        self.edit_signal_index = sig_idx
-                        self.edit_start_cycle = cycle_idx
-                        self.edit_value = val
-                        
-                        self.edit_orig_start = o_start
-                        self.edit_orig_end = o_end
-                        self.edit_initial_values = list(signal.values)
-                        
-                        # edit_mode is already pre-calculated above!
+                        # SETUP DURATION EDIT (Default Drag Action)
+                        # This will be overridden if Long Press fires
+                        # FIX: Only enable if NOT a multi-select immediate move
+                        # SETUP DURATION EDIT (Default Drag Action)
+                        # FIX: Only enable if NOT a multi-select immediate move
+                        if not can_move_immediately:
+                            # REFINE: Logic based on Cycle Length
+                            block_len = o_end - o_start + 1
+                            should_edit = True
+                            determined_mode = None
+                            
+                            if block_len >= 2:
+                                # Multi-cycle: Explicit Head/Tail check
+                                if cycle_idx == o_start:
+                                    determined_mode = 'START'
+                                elif cycle_idx == o_end:
+                                    determined_mode = 'END'
+                                else:
+                                    # Middle click on multi-cycle -> Do not edit duration
+                                    should_edit = False
+                            else:
+                                # Single-cycle: Dynamic based on drag direction (handled in mouseMove)
+                                determined_mode = None
+                            
+                            if should_edit:
+                                self.is_editing_duration = True
+                                self.is_duration_dragged = False # Track if we actually dragged
+                                self.edit_signal_index = sig_idx
+                                self.edit_start_cycle = cycle_idx
+                                self.edit_value = val
+                                
+                                self.edit_orig_start = o_start
+                                self.edit_orig_end = o_end
+                                self.edit_initial_values = list(signal.values)
+                                
+                                self.edit_mode = determined_mode
+                            else:
+                                self.is_editing_duration = False
+                        else:
+                            self.is_editing_duration = False
                            
                                 
         elif event.button() == Qt.MouseButton.RightButton:
@@ -1721,7 +1257,7 @@ class WaveformCanvas(QWidget):
              
              if x > self.signal_header_width and 0 <= sig_idx < len(self.project.signals):
                  signal = self.project.signals[sig_idx]
-                 if signal.type in [SignalType.BUS_DATA, SignalType.BUS_STATE]:
+                 if signal.type == SignalType.BUS:
                      cw = self.project.cycle_width
                      cycle_idx = int((x - self.signal_header_width) / cw)
                      
@@ -2066,7 +1602,7 @@ class WaveformCanvas(QWidget):
         o_start = new_cycle
         o_end = new_cycle
         
-        if signal.type in [SignalType.BUS_DATA, SignalType.BUS_STATE] and val != 'X':
+        if signal.type == SignalType.BUS and val != 'X':
              # Expand block (BUS Logic)
              for t in range(new_cycle, -1, -1):
                 if signal.get_value_at(t) == val:
