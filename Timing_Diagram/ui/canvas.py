@@ -1089,7 +1089,7 @@ class WaveformCanvas(QWidget):
                 # If we moved, it's a normal drag (Duration Edit or Paint), NOT a long press move
         
         # --- IMMEDIATE MOVE (Multi-Selection) ---
-        if getattr(self, 'allow_immediate_move', False) and not self.is_moving_block:
+        if getattr(self, 'allow_immediate_move', False) and not self.is_moving_block and not self.is_editing_duration:
              diff = (event.pos() - self.press_start_pos).manhattanLength() if self.press_start_pos else 0
              if diff > 5:
                   self.start_moving_block()
@@ -1485,8 +1485,13 @@ class WaveformCanvas(QWidget):
         self.update()
 
     def on_long_press(self):
-        # Activated after Timer
-        self.start_moving_block()
+        # Activated after Timer -> Switch to Resize Mode (Duration Edit)
+        self.is_moving_block = False
+        self.is_editing_duration = True
+        
+        # Cursor Feedback
+        self.setCursor(Qt.CursorShape.SizeHorCursor)
+        self.update()
 
     def mousePressEvent(self, event):
         self.setFocus() # Ensure we get keyboard events (e.g. keyPress)
@@ -1664,14 +1669,17 @@ class WaveformCanvas(QWidget):
                                          is_multi_block = True
                                          break
                         
-                        can_move_immediately = is_multi_block and self.is_part_of_selection(clicked_region)
+                        # Check for Immediate Move Condition 
+                        # Allow immediate move for any valid selection (User Request: Drag = Move)
+                        can_move_immediately = self.is_part_of_selection(clicked_region)
                         self.allow_immediate_move = can_move_immediately
                         
-                        if not self.allow_immediate_move:
-                             self.long_press_timer.start(500) # 1.0 seconds for Single Item
-                        else:
-                             # We do NOT start the timer, but set flag to allow drag in mouseMove
+                        if can_move_immediately:
+                             # Set up Move context but don't start yet (wait for drag)
                              pass
+                             
+                        # Always start timer for potential Resize (Long Press)
+                        self.long_press_timer.start(500) 
 
                         # 3. STANDARD CLICK (Replace Selection)
                         # Only reset selection if we didn't just add/toggle
@@ -1692,23 +1700,19 @@ class WaveformCanvas(QWidget):
                         
                         self.bus_selected.emit(sig_idx, cycle_idx)
                         
-                        # SETUP DURATION EDIT (Default Drag Action)
-                        # This will be overridden if Long Press fires
-                        # FIX: Only enable if NOT a multi-select immediate move
-                        if not can_move_immediately:
-                            self.is_editing_duration = True
-                            self.is_duration_dragged = False # Track if we actually dragged
-                            self.edit_signal_index = sig_idx
-                            self.edit_start_cycle = cycle_idx
-                            self.edit_value = val
-                            
-                            self.edit_orig_start = o_start
-                            self.edit_orig_end = o_end
-                            self.edit_initial_values = list(signal.values)
-                            
-                            self.edit_mode = None
-                        else:
-                            self.is_editing_duration = False
+                        # SETUP DURATION EDIT CONTEXT (But do NOT enable it yet)
+                        # It will be enabled ONLY if Long Press fires
+                        self.is_editing_duration = False
+                        self.is_duration_dragged = False 
+                        self.edit_signal_index = sig_idx
+                        self.edit_start_cycle = cycle_idx
+                        self.edit_value = val
+                        
+                        self.edit_orig_start = o_start
+                        self.edit_orig_end = o_end
+                        self.edit_initial_values = list(signal.values)
+                        
+                        # edit_mode is already pre-calculated above!
                            
                                 
         elif event.button() == Qt.MouseButton.RightButton:
