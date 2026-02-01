@@ -171,11 +171,6 @@ class MainWindow(QMainWindow):
         
         file_menu.addSeparator()
         
-        import_hdl_action = file_menu.addAction("Import from HDL...")
-        import_hdl_action.triggered.connect(self.import_hdl_signals)
-        
-        file_menu.addSeparator()
-        
         exit_action = file_menu.addAction("Exit")
         exit_action.triggered.connect(self.close)
 
@@ -221,6 +216,11 @@ class MainWindow(QMainWindow):
         gen_action = tools_menu.addAction("Data Generator")
         gen_action.triggered.connect(self.open_data_generator)
         gen_action.setShortcut(QKeySequence("Ctrl+G"))
+        
+        tools_menu.addSeparator()
+        
+        import_hdl_action = tools_menu.addAction("Import from HDL...")
+        import_hdl_action.triggered.connect(self.import_hdl_signals)
         
         main_widget = QWidget()
         self.setCentralWidget(main_widget)
@@ -1166,6 +1166,8 @@ class MainWindow(QMainWindow):
             if new_signals:
                 self.undo_manager.push_snapshot()
                 for sig in new_signals:
+                    # Assign a distinct color for each imported signal
+                    sig.color = self.generate_distinct_color()
                     self.project.add_signal(sig)
                 self.refresh_list()
                 self.canvas.update()
