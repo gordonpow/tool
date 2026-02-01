@@ -1157,3 +1157,25 @@ class MainWindow(QMainWindow):
         self.canvas.bus_selected.emit(-1, -1) # Clear selection in UI?
         # Or keep it? The Undo might have restored a deleted signal.
         # Clearing selection is safest to avoid Index Errors until we have robust tracking.
+        self.editor_panel.reset()
+
+    def import_hdl_signals(self):
+        dialog = ImportDialog(self)
+        if dialog.exec():
+            new_signals = dialog.get_imported_signals()
+            if new_signals:
+                self.undo_manager.push_snapshot()
+                for sig in new_signals:
+                    self.project.add_signal(sig)
+                self.refresh_list()
+                self.canvas.update()
+                self.set_dirty(True)
+                QMessageBox.information(self, "Import Successful", f"Imported {len(new_signals)} signals.")
+
+if __name__ == "__main__":
+    import sys
+    from PyQt6.QtWidgets import QApplication
+    app = QApplication(sys.argv)
+    window = MainWindow()
+    window.show()
+    sys.exit(app.exec())
