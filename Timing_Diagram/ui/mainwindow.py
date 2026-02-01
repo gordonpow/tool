@@ -725,6 +725,10 @@ class MainWindow(QMainWindow):
 
             self.bus_config_container.setVisible(signal.type == SignalType.BUS)
             
+            is_data = (signal.bus_flavor == 'DATA')
+            self.bus_width_check.setVisible(is_data)
+            self.bus_width_spin.setVisible(is_data)
+            
             self.bus_width_check.blockSignals(False)
             self.bus_width_spin.blockSignals(False)
             self.bus_input_base_combo.blockSignals(False)
@@ -776,14 +780,23 @@ class MainWindow(QMainWindow):
                 
             # Save Bus Properties
             if signal.type == SignalType.BUS:
-                signal.bus_width = self.bus_width_spin.value() if self.bus_width_check.isChecked() else 0
+                flavor = self.bus_flavor_combo.currentData()
+                signal.bus_flavor = flavor
+                
+                is_data = (flavor == 'DATA')
+                self.bus_width_check.setVisible(is_data)
+                self.bus_width_spin.setVisible(is_data)
+                
+                if is_data:
+                    signal.bus_width = self.bus_width_spin.value() if self.bus_width_check.isChecked() else 0
+                    self.bus_width_spin.setEnabled(self.bus_width_check.isChecked())
+                else:
+                     signal.bus_width = 0 # State Bus has no width/expansion
+                     self.bus_width_check.setChecked(False) # Visual sync
+                
                 signal.input_base = self.bus_input_base_combo.currentData()
                 signal.display_base = self.bus_display_base_combo.currentData()
-                signal.bus_flavor = self.bus_flavor_combo.currentData()
                 
-                # Update UI state (enable spin)
-                self.bus_width_spin.setEnabled(self.bus_width_check.isChecked())
-            
             # Update Visibility
             self.clk_edge_combo.setVisible(signal.type == SignalType.CLK)
             self.clk_mod_container.setVisible(signal.type == SignalType.CLK)
