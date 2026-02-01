@@ -16,25 +16,30 @@ class HDLParser:
 
     @staticmethod
     def parse_vhdl(text: str):
-        signals = []
-        # Find Port block content
-        port_match = re.search(r"port\s*\((.*?)\)\s*;", text, re.IGNORECASE | re.DOTALL)
+        # 1. Strip comments (VHDL uses --)
+        text = re.sub(r"--.*", "", text)
+        
+        # 2. Find Port block content
+        # We look for 'port (' and match until the last ');' in the text
+        # This is more robust than non-greedy match which stops at vector closing parens ');'
+        port_match = re.search(r"port\s*\((.*)\)\s*;", text, re.IGNORECASE | re.DOTALL)
         if not port_match:
             return []
         
-        content = port_match.group(1)
+        content = port_match.group(1).strip()
+        
+        signals = []
         # Split by semicolon (each port line)
         lines = content.split(';')
         for line in lines:
             line = line.strip()
             if not line: continue
             
-            # Pattern: name : direction type
-            # Example: i_clk : in std_logic
-            # Example: o_data : out std_logic_vector(7 downto 0)
-            m = re.match(r"(\w+)\s*:\s*(in|out|inout)\s+([\w\s\(\) downto]+)", line, re.IGNORECASE)
+            # Pattern: name(s) : direction type
+            # Handles multiple names: i_clk, i_rst : in std_logic
+            m = re.match(r"([\w\s,]+)\s*:\s*(in|out|inout)\s+([\w\s\(\) downto]+)", line, re.IGNORECASE)
             if m:
-                name = m.group(1)
+                names_raw = m.group(1)
                 direction = m.group(2).lower()
                 type_str = m.group(3).lower()
                 
@@ -46,13 +51,17 @@ class HDLParser:
                     low = int(width_m.group(2))
                     bits = abs(high - low) + 1
                 
-                sig_type = HDLParser.guess_type(name, direction, bits, type_str)
-                signals.append({
-                    'name': name,
-                    'type': sig_type,
-                    'bits': bits,
-                    'direction': direction
-                })
+                # Split names if comma separated
+                names = [n.strip() for n in names_raw.split(',')]
+                for name in names:
+                    if not name: continue
+                    sig_type = HDLParser.guess_type(name, direction, bits, type_str)
+                    signals.append({
+                        'name': name,
+                        'type': sig_type,
+                        'bits': bits,
+                        'direction': direction
+                    })
         return signals
 
     @staticmethod
