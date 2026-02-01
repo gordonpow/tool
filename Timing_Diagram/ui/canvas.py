@@ -152,6 +152,22 @@ class WaveformCanvas(QWidget):
         painter.end()
         return img
 
+    def draw_grid_to_background(self, painter: QPainter, width: int, height: int, v_scroll: int):
+        """Draws vertical cycle lines and horizontal signal separators in the background."""
+        cw = self.project.cycle_width
+        grid_color = QColor("#282828")
+        painter.setPen(QPen(grid_color, 1))
+
+        # Vertical Cycle Lines
+        for t in range(self.project.total_cycles + 1):
+            x = self.signal_header_width + t * cw
+            painter.drawLine(int(x), v_scroll, int(x), height)
+
+        # Horizontal Signal Separators
+        for i in range(len(self.project.signals) + 1):
+            y = self.header_height + i * self.row_height
+            painter.drawLine(0, int(y), width, int(y))
+
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -161,7 +177,10 @@ class WaveformCanvas(QWidget):
         
         v_scroll = self.get_v_scroll()
         
-        # 1. Draw Signals
+        # 1. Draw Background Grid (Behind signals)
+        self.draw_grid_to_background(painter, self.width(), self.height(), v_scroll)
+        
+        # 2. Draw Signals
         for i, signal in enumerate(self.project.signals):
             # If dragging this signal, draw it at the dragged position later (or transparent here)
             if i == self.dragging_signal_index:
@@ -309,10 +328,6 @@ class WaveformCanvas(QWidget):
                 painter.setFont(f)
             
             painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, str(t))
-            
-            # Subtle vertical grid line
-            painter.setPen(QColor("#282828"))
-            painter.drawLine(int(x), v_scroll, int(x), height)
 
     def draw_signal(self, painter: QPainter, signal: Signal, y: int, is_dragging=False, override_values=None, highlight_ranges=None, width=None, text_color=None):
         if width is None: width = self.width()
@@ -325,11 +340,6 @@ class WaveformCanvas(QWidget):
         name_rect = QRect(0, y, self.signal_header_width - 10, self.row_height)
         painter.setPen(text_color if text_color else QColor("#e0e0e0"))
         painter.drawText(name_rect, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, signal.name)
-        
-        # Draw separating line
-        if not is_dragging:
-            painter.setPen(QColor("#282828"))
-            painter.drawLine(0, y + self.row_height, width, y + self.row_height)
         
         # Draw Waveform
         cw = self.project.cycle_width
