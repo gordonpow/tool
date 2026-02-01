@@ -1071,8 +1071,8 @@ class WaveformCanvas(QWidget):
              # --- New: Drag-to-Paint & Click Toggle (Binary) ---
              # Handle BOTH Left and Right buttons here
              if signal.type in [SignalType.INPUT, SignalType.OUTPUT, SignalType.INOUT]:
-                 # Only Paint if NO Control Modifier
-                 if getattr(event.modifiers(), 'value', event.modifiers()) & Qt.KeyboardModifier.ControlModifier:
+                  # Only Paint if NO Control Modifier
+                  if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
                      pass # Fall through to selection logic
                  else:
                      self.before_change.emit() # Snapshot before Drag-Paint or Toggle
