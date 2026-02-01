@@ -284,7 +284,7 @@ class MainWindow(QMainWindow):
         
         # Raw Base (Input)
         self.bus_input_base_combo = QComboBox()
-        self.bus_input_base_combo.addItems(["Bin (2)", "Dec (10)", "Hex (16)"])
+        self.bus_input_base_combo.addItems(["Bin (2)", "Dec (10)", "Hex (16)", "Oct (8)"])
         self.bus_input_base_combo.currentIndexChanged.connect(self.update_signal_properties)
         bus_row2 = QHBoxLayout()
         bus_row2.addWidget(QLabel("Raw Base:"))
@@ -293,7 +293,7 @@ class MainWindow(QMainWindow):
         
         # Display Base
         self.bus_display_base_combo = QComboBox()
-        self.bus_display_base_combo.addItems(["Bin (2)", "Dec (10)", "Hex (16)"])
+        self.bus_display_base_combo.addItems(["Bin (2)", "Dec (10)", "Hex (16)", "Oct (8)"])
         self.bus_display_base_combo.currentIndexChanged.connect(self.update_signal_properties)
         bus_row3 = QHBoxLayout()
         bus_row3.addWidget(QLabel("Disp Base:"))
@@ -692,7 +692,7 @@ class MainWindow(QMainWindow):
                 self.bus_bits_spin.blockSignals(False)
                 
                 self.bus_input_base_combo.blockSignals(True)
-                base_to_idx = {2:0, 10:1, 16:2}
+                base_to_idx = {2:0, 10:1, 16:2, 8:3}
                 self.bus_input_base_combo.setCurrentIndex(base_to_idx.get(signal.input_base, 2))
                 self.bus_input_base_combo.blockSignals(False)
                 
@@ -746,7 +746,7 @@ class MainWindow(QMainWindow):
             # Save Bus Props
             if signal.type == SignalType.BUS_DATA:
                 signal.bits = self.bus_bits_spin.value()
-                idx_to_base = {0:2, 1:10, 2:16}
+                idx_to_base = {0:2, 1:10, 2:16, 3:8}
                 signal.input_base = idx_to_base.get(self.bus_input_base_combo.currentIndex(), 16)
                 signal.display_base = idx_to_base.get(self.bus_display_base_combo.currentIndex(), 16)
 

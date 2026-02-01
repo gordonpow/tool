@@ -58,6 +58,11 @@ class Signal:
                 hex_len = (self.bits + 3) // 4
                 fmt = f"{{:0{hex_len}X}}"
                 return "0x" + fmt.format(num)
+            elif self.display_base == 8:
+                # Octal with padding (3 bits = 1 octal digit)
+                oct_len = (self.bits + 2) // 3
+                fmt = f"{{:0{oct_len}o}}"
+                return "0o" + fmt.format(num)
         except:
             return val # Fallback for non-numeric or invalid input
             
