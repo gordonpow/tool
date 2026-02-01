@@ -285,6 +285,62 @@ class MainWindow(QMainWindow):
         left_layout.addWidget(self.clk_mod_container)
         self.clk_mod_container.setVisible(False)
         
+        # Bus Config (Visible only for Bus)
+        self.bus_config_container = QWidget()
+        bus_layout = QVBoxLayout(self.bus_config_container)
+        bus_layout.setContentsMargins(0,0,0,0)
+        
+        # Bus Width
+        width_row = QHBoxLayout()
+        self.bus_width_check = QCheckBox("Set Bit Width")
+        self.bus_width_check.clicked.connect(self.update_signal_properties)
+        width_row.addWidget(self.bus_width_check)
+        
+        self.bus_width_spin = QSpinBox()
+        self.bus_width_spin.setRange(1, 128)
+        self.bus_width_spin.setValue(8)
+        self.bus_width_spin.valueChanged.connect(self.update_signal_properties)
+        self.bus_width_spin.setEnabled(False)
+        width_row.addWidget(self.bus_width_spin)
+        bus_layout.addLayout(width_row)
+        
+        # Input Base
+        input_base_row = QHBoxLayout()
+        input_base_row.addWidget(QLabel("Input Base:"))
+        self.bus_input_base_combo = QComboBox()
+        self.bus_input_base_combo.addItem("Binary (2)", 2)
+        self.bus_input_base_combo.addItem("Octal (8)", 8)
+        self.bus_input_base_combo.addItem("Decimal (10)", 10)
+        self.bus_input_base_combo.addItem("Hex (16)", 16)
+        self.bus_input_base_combo.currentIndexChanged.connect(self.update_signal_properties)
+        input_base_row.addWidget(self.bus_input_base_combo)
+        bus_layout.addLayout(input_base_row)
+
+        # Display Base
+        display_base_row = QHBoxLayout()
+        display_base_row.addWidget(QLabel("Display Base:"))
+        self.bus_display_base_combo = QComboBox()
+        self.bus_display_base_combo.addItem("Binary (2)", 2)
+        self.bus_display_base_combo.addItem("Octal (8)", 8)
+        self.bus_display_base_combo.addItem("Decimal (10)", 10)
+        self.bus_display_base_combo.addItem("Hex (16)", 16)
+        self.bus_display_base_combo.currentIndexChanged.connect(self.update_signal_properties)
+        display_base_row.addWidget(self.bus_display_base_combo)
+        bus_layout.addLayout(display_base_row)
+        
+        # Flavor (Data vs State)
+        flavor_row = QHBoxLayout()
+        flavor_row.addWidget(QLabel("Bus Type:"))
+        self.bus_flavor_combo = QComboBox()
+        self.bus_flavor_combo.addItem("Data Bus", "DATA")
+        self.bus_flavor_combo.addItem("State Machine", "STATE")
+        self.bus_flavor_combo.currentIndexChanged.connect(self.update_signal_properties)
+        flavor_row.addWidget(self.bus_flavor_combo)
+        bus_layout.addLayout(flavor_row)
+        
+        left_layout.addWidget(self.bus_config_container)
+        self.bus_config_container.setVisible(False)
+        
         # Color
         left_layout.addWidget(QLabel("Color:"))
         color_row = QHBoxLayout()
@@ -645,6 +701,36 @@ class MainWindow(QMainWindow):
             self.clk_mod_container.setVisible(signal.type == SignalType.CLK)
             self.clk_mod_spin.blockSignals(False)
             
+            # Bus Properties
+            self.bus_width_check.blockSignals(True)
+            self.bus_width_spin.blockSignals(True)
+            self.bus_input_base_combo.blockSignals(True)
+            self.bus_display_base_combo.blockSignals(True)
+            
+            is_bus_width_set = (signal.bus_width > 0)
+            self.bus_width_check.setChecked(is_bus_width_set)
+            self.bus_width_spin.setValue(signal.bus_width if is_bus_width_set else 8)
+            self.bus_width_spin.setEnabled(is_bus_width_set)
+            
+            # Find Base Combo Indices
+            idx_in = self.bus_input_base_combo.findData(signal.input_base)
+            if idx_in >= 0: self.bus_input_base_combo.setCurrentIndex(idx_in)
+            
+            idx_disp = self.bus_display_base_combo.findData(signal.display_base)
+            if idx_disp >= 0: self.bus_display_base_combo.setCurrentIndex(idx_disp)
+
+            idx_flav = self.bus_flavor_combo.findData(signal.bus_flavor)
+            if idx_flav >= 0: self.bus_flavor_combo.setCurrentIndex(idx_flav)
+            else: self.bus_flavor_combo.setCurrentIndex(0)
+
+            self.bus_config_container.setVisible(signal.type == SignalType.BUS)
+            
+            self.bus_width_check.blockSignals(False)
+            self.bus_width_spin.blockSignals(False)
+            self.bus_input_base_combo.blockSignals(False)
+            self.bus_display_base_combo.blockSignals(False)
+            self.bus_flavor_combo.blockSignals(False)
+            
             # Auto-Focus and Select Name for quick editing
             self.name_edit.setFocus()
             self.name_edit.selectAll()
@@ -683,15 +769,25 @@ class MainWindow(QMainWindow):
             signal.type = self.type_combo.currentData()
             
             # Save Clock Edge
-            # Save Clock Edge
             if signal.type == SignalType.CLK:
                 # Index 0 = Rising (True), Index 1 = Falling (False)
                 signal.clk_rising_edge = (self.clk_edge_combo.currentIndex() == 0)
                 signal.clk_mod = self.clk_mod_spin.value()
+                
+            # Save Bus Properties
+            if signal.type == SignalType.BUS:
+                signal.bus_width = self.bus_width_spin.value() if self.bus_width_check.isChecked() else 0
+                signal.input_base = self.bus_input_base_combo.currentData()
+                signal.display_base = self.bus_display_base_combo.currentData()
+                signal.bus_flavor = self.bus_flavor_combo.currentData()
+                
+                # Update UI state (enable spin)
+                self.bus_width_spin.setEnabled(self.bus_width_check.isChecked())
             
             # Update Visibility
             self.clk_edge_combo.setVisible(signal.type == SignalType.CLK)
             self.clk_mod_container.setVisible(signal.type == SignalType.CLK)
+            self.bus_config_container.setVisible(signal.type == SignalType.BUS)
 
             self.save_pinned_signals()
 

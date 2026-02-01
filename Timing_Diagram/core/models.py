@@ -27,6 +27,13 @@ class Signal:
     clk_mod: int = 1 # Clock Divider/Modifier (1 = standard, 2 = div 2, etc.)
     pinned: bool = False # Pinned signals are saved/restored
     
+    # Bus properties
+    bus_width: int = 0  # 0 means unspecified/no expansion
+    input_base: int = 10
+    display_base: int = 16
+    expanded: bool = False
+    bus_flavor: str = "DATA" # "DATA" or "STATE"
+    
     def set_value_at(self, cycle_index: int, value: str):
         # Extend list if needed
         if cycle_index >= len(self.values):
@@ -45,10 +52,17 @@ class Signal:
             'color': self.color,
             'values': self.values,
             'value_colors': self.value_colors,
+            'height': self.height,
             'clk_rising_edge': self.clk_rising_edge,
             'clk_mod': self.clk_mod,
-            'pinned': self.pinned
+            'pinned': self.pinned,
+            'bus_width': self.bus_width,
+            'input_base': self.input_base,
+            'display_base': self.display_base,
+            'expanded': self.expanded,
+            'bus_flavor': self.bus_flavor,
         }
+
 
     @classmethod
     def from_dict(cls, data):
@@ -62,6 +76,11 @@ class Signal:
         s.clk_rising_edge = data.get('clk_rising_edge', True)
         s.clk_mod = data.get('clk_mod', 1)
         s.pinned = data.get('pinned', False)
+        s.bus_width = data.get('bus_width', 0)
+        s.input_base = data.get('input_base', 10)
+        s.display_base = data.get('display_base', 16)
+        s.expanded = data.get('expanded', False)
+        s.bus_flavor = data.get('bus_flavor', "DATA")
         return s
 
 @dataclass
