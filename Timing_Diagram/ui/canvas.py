@@ -368,7 +368,7 @@ class WaveformCanvas(QWidget):
         path = QPainterPath()
         
         # --- BUS RENDER LOGIC (Merged) ---
-        if signal.type == SignalType.BUS:
+        if signal.type in [SignalType.BUS_DATA, SignalType.BUS_STATE]:
             # Group consecutive identical values
             groups = []
             if self.project.total_cycles > 0:
@@ -444,7 +444,10 @@ class WaveformCanvas(QWidget):
                     # Draw Text - Centered in the whole merged block
                     text_rect = QRect(int(x1), int(high_y), int(x2-x1), int(low_y - high_y))
                     painter.setPen(text_color if text_color else QColor("#ffffff"))
-                    painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, val)
+                    
+                    # --- Automatic Conversion for BUS_DATA ---
+                    display_text = signal.format_bus_value(val)
+                    painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, display_text)
 
         # --- BINARY RENDER LOGIC (Cycle by Cycle usually fine, but path is continuous) ---
         else: 
@@ -1257,7 +1260,7 @@ class WaveformCanvas(QWidget):
              
              if x > self.signal_header_width and 0 <= sig_idx < len(self.project.signals):
                  signal = self.project.signals[sig_idx]
-                 if signal.type == SignalType.BUS:
+                 if signal.type in [SignalType.BUS_DATA, SignalType.BUS_STATE]:
                      cw = self.project.cycle_width
                      cycle_idx = int((x - self.signal_header_width) / cw)
                      
@@ -1602,7 +1605,7 @@ class WaveformCanvas(QWidget):
         o_start = new_cycle
         o_end = new_cycle
         
-        if signal.type == SignalType.BUS and val != 'X':
+        if signal.type in [SignalType.BUS_DATA, SignalType.BUS_STATE] and val != 'X':
              # Expand block (BUS Logic)
              for t in range(new_cycle, -1, -1):
                 if signal.get_value_at(t) == val:

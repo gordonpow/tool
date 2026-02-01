@@ -82,7 +82,7 @@ class DataGeneratorDialog(QDialog):
     def populate_signals(self, initial_idx):
         self.signal_map = [] # stores logical index
         for i, sig in enumerate(self.project.signals):
-            if sig.type.name == 'BUS':
+            if sig.type.name in ['BUS_DATA', 'BUS_STATE']:
                 self.signal_combo.addItem(sig.name)
                 self.signal_map.append(i)
                 
