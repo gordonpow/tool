@@ -1073,13 +1073,13 @@ class WaveformCanvas(QWidget):
              if signal.type in [SignalType.INPUT, SignalType.OUTPUT, SignalType.INOUT]:
                   # Only Paint if NO Control Modifier
                   if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
-                     pass # Fall through to selection logic
-                 else:
-                     self.before_change.emit() # Snapshot before Drag-Paint or Toggle
-                     self.paint_start_pos = event.pos()
-                     self.paint_val = '1' if event.button() == Qt.MouseButton.LeftButton else '0'
-                     self.is_painting = False # Wait for drag
-                     return
+                      pass # Fall through to selection logic
+                  else:
+                      self.before_change.emit() # Snapshot before Drag-Paint or Toggle
+                      self.paint_start_pos = event.pos()
+                      self.paint_val = '1' if event.button() == Qt.MouseButton.LeftButton else '0'
+                      self.is_painting = False # Wait for drag
+                      return
         
         if event.button() == Qt.MouseButton.LeftButton:
             

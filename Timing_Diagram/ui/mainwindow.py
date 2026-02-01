@@ -156,6 +156,23 @@ class MainWindow(QMainWindow):
     def init_ui(self):
         # Menu Bar
         menubar = self.menuBar()
+        
+        # File Menu
+        file_menu = menubar.addMenu("File")
+        
+        load_action = file_menu.addAction("Load Project")
+        load_action.setShortcut(QKeySequence("Ctrl+O"))
+        load_action.triggered.connect(self.load_project_file)
+        
+        save_proj_action = file_menu.addAction("Save Project")
+        save_proj_action.setShortcut(QKeySequence("Ctrl+S"))
+        save_proj_action.triggered.connect(self.save_project)
+        
+        file_menu.addSeparator()
+        
+        exit_action = file_menu.addAction("Exit")
+        exit_action.triggered.connect(self.close)
+
         setting_menu = menubar.addMenu("Setting") # User requested 'setting' (lowercase handling?) "名称為setting" -> "Setting"
         
         pref_action = setting_menu.addAction("Preferences")
@@ -168,11 +185,8 @@ class MainWindow(QMainWindow):
         self.unsaved_badge.setVisible(False)
         menubar.setCornerWidget(self.unsaved_badge, Qt.Corner.TopRightCorner)
         
-        # Shortcut for Save
-        save_action = QAction("Save", self)
-        save_action.setShortcut(QKeySequence("Ctrl+S"))
-        save_action.triggered.connect(self.save_project)
-        self.addAction(save_action)
+        # Shortcut for Save (Now in File Menu, but this provides global backup if menu not visible)
+        # self.addAction(save_proj_action) # QAction added to menu is already active
         
         # Edit Menu
         edit_menu = menubar.addMenu("Edit")
@@ -218,16 +232,16 @@ class MainWindow(QMainWindow):
         
         left_layout.addWidget(QLabel("Signals"))
         
-        # Save / Load
-        sl_layout = QHBoxLayout()
-        btn_save = QPushButton("Save Project")
-        btn_save.clicked.connect(self.save_project)
-        sl_layout.addWidget(btn_save)
+        # Save / Load (Moved to File Menu)
+        # sl_layout = QHBoxLayout()
+        # btn_save = QPushButton("Save Project")
+        # btn_save.clicked.connect(self.save_project)
+        # sl_layout.addWidget(btn_save)
         
-        btn_load = QPushButton("Load Project")
-        btn_load.clicked.connect(self.load_project_file)
-        sl_layout.addWidget(btn_load)
-        left_layout.addLayout(sl_layout)
+        # btn_load = QPushButton("Load Project")
+        # btn_load.clicked.connect(self.load_project_file)
+        # sl_layout.addWidget(btn_load)
+        # left_layout.addLayout(sl_layout)
         
         self.signal_list = QListWidget()
         self.signal_list.setDragDropMode(QListWidget.DragDropMode.InternalMove)
