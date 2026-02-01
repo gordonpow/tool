@@ -1613,6 +1613,35 @@ class WaveformCanvas(QWidget):
                             'region': clicked_region
                         }
                         
+                        # --- "Center Split" Limit Logic (User Request) ---
+                        # Determine if we are interacting with Start or End edge based on cursor position relative to block center.
+                        # Logic:
+                        # Center = Start + (Length / 2.0)
+                        # Cursor < Center -> Edit Left Edge (START)
+                        # Cursor > Center -> Edit Right Edge (END)
+                        
+                        cw = self.project.cycle_width
+                        cycle_float = (x - self.signal_header_width) / cw
+                        
+                        region_start = o_start
+                        region_len = o_end - o_start + 1
+                        center_cycle = region_start + (region_len / 2.0)
+                        
+                        # Pre-determine edit mode
+                        if region_len >= 2:
+                            # Multi-Cycle: Use Center Split Logic (Positional)
+                            if cycle_float < center_cycle:
+                                self.edit_mode = 'START'
+                            else:
+                                self.edit_mode = 'END'
+                        else:
+                            # Single Cycle: Use Drag Direction (Dynamic)
+                            # Leave edit_mode as None, let mouseMoveEvent determine it based on movement delta
+                            self.edit_mode = None
+                            
+                        # Store this for mouseMove to pick up immediately without waiting for diff
+                        # (But we still wait for diff > 5 to confirm it is a drag, not just a click)
+                        
                         # Check for Immediate Move Condition 
                         # Allow immediate move ONLY if it is a Multi-Selection (User Request).
                         # Single selection (or just clicking one item) requires Long Press.
