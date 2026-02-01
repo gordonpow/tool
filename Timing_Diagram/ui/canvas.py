@@ -111,6 +111,15 @@ class WaveformCanvas(QWidget):
                    return True
         return False
 
+    def get_v_scroll(self):
+        """Helper to find the vertical scroll value of the parent QScrollArea."""
+        parent = self.parent()
+        while parent and not isinstance(parent, QScrollArea):
+            parent = parent.parent()
+        if parent:
+            return parent.verticalScrollBar().value()
+        return 0
+
     def render_to_image_object(self, settings):
         bg_color = settings['bg_color']
         font_color = settings['font_color']
@@ -134,7 +143,7 @@ class WaveformCanvas(QWidget):
         painter.setFont(font)
         
         # Draw Content
-        self.draw_header(painter, settings.get('font_color'), width=full_w, height=full_h)
+        self.draw_header(painter, settings.get('font_color'), width=full_w, height=full_h, v_scroll=0)
         
         for i, signal in enumerate(self.project.signals):
             y = self.header_height + i * self.row_height
@@ -150,10 +159,9 @@ class WaveformCanvas(QWidget):
         # Fill background
         painter.fillRect(self.rect(), QColor("#1e1e1e"))
         
-        # Draw Time/Cycle Header
-        self.draw_header(painter)
+        v_scroll = self.get_v_scroll()
         
-        # Draw Signals
+        # 1. Draw Signals
         for i, signal in enumerate(self.project.signals):
             # If dragging this signal, draw it at the dragged position later (or transparent here)
             if i == self.dragging_signal_index:
@@ -177,7 +185,10 @@ class WaveformCanvas(QWidget):
                 
             self.draw_signal(painter, signal, y, is_dragging=False, override_values=override, highlight_ranges=highlights)
 
-        # Draw the dragged signal last (on top) - For Reordering
+        # 2. Draw Sticky Header (ON TOP of signals)
+        self.draw_header(painter, v_scroll=v_scroll)
+
+        # 3. Draw UI Overlays (Dragged signal, selection, guide)
         if self.dragging_signal_index is not None:
             signal = self.project.signals[self.dragging_signal_index]
             drag_y = int(self.current_drag_y - self.row_height/2)
@@ -189,17 +200,6 @@ class WaveformCanvas(QWidget):
                 line_y = self.header_height + drop_idx * self.row_height
                 painter.setPen(QPen(QColor("#00ff00"), 2))
                 painter.drawLine(0, line_y, self.width(), line_y)
-
-        # Draw Selection Highlight (Standard)
-        if self.selected_region and not self.is_moving_block:
-            self.draw_selection_highlight(painter)
-
-        # Draw Cursor/Guide if hovering and NOT dragging
-        if self.hover_pos and self.dragging_signal_index is None:
-            self.draw_guide(painter)
-
-        # Draw Move-Insert Highlight (Visual Feedback) -- (Previous logic here)
-        # (Assuming the rest of paintEvent is intact below...)
 
         # Draw Selection Highlight (Standard)
         if self.selected_region and not self.is_moving_block:
@@ -262,59 +262,48 @@ class WaveformCanvas(QWidget):
         idx = max(0, min(idx, len(self.project.signals)))
         return idx
 
-    def draw_header(self, painter: QPainter, font_color=None, width=None, height=None):
+    def draw_header(self, painter: QPainter, font_color=None, width=None, height=None, v_scroll=0):
         if width is None: width = self.width()
         if height is None: height = self.height()
         default_color = QColor("#808080")
         
+        # Draw Sticky Background
+        painter.fillRect(0, v_scroll, width, self.header_height, QColor("#1e1e1e"))
+        painter.setPen(QPen(QColor("#333333"), 1))
+        painter.drawLine(0, v_scroll + self.header_height, width, v_scroll + self.header_height)
+        
         # Draw Cycle Numbers
         painter.setPen(font_color if font_color else default_color)
         font = painter.font()
-        # font.setPointSize(8) # Don't force size if set externally
-        if font.pointSize() > 20: pass # Sanity check?
-        
-        # Only set if not already set? 
-        # Actually paintEvent sets size 8 before calling? No, it used local font.
-        # If external render set font size, we should respect it.
-        # Existing code: `font = painter.font(); font.setPointSize(8); painter.setFont(font)`
-        # I should Make it conditional.
-        if font_color is None: # Assuming export sets font on painter before
+        if font_color is None:
              font.setPointSize(8)
              painter.setFont(font)
              
         cw = self.project.cycle_width
         
-        # Clip header drawing area
-        # painter.setClipRect(0, 0, self.width(), self.header_height)
-        
-        # Only draw visible cycles effectively? For now draw all
+        regions_to_check = self.selected_regions
+        if self.is_moving_block and hasattr(self, 'preview_selection_regions') and self.preview_selection_regions:
+             regions_to_check = self.preview_selection_regions
+
         for t in range(self.project.total_cycles):
             x = self.signal_header_width + t * cw
-            rect = QRect(x, 0, cw, self.header_height)
+            rect = QRect(int(x), v_scroll, int(cw), self.header_height)
             
-            # Highlight selected cycles in header
             # Highlight selected cycles in header
             is_selected = False
-            
-            # Use Preview regions if moving, else actual selection
-            regions_to_check = self.selected_regions
-            if self.is_moving_block and hasattr(self, 'preview_selection_regions') and self.preview_selection_regions:
-                 regions_to_check = self.preview_selection_regions
-                 
             for (sig, start, end) in regions_to_check:
                 if start <= t <= end:
                     is_selected = True
-                    # Draw highlight background
-                    painter.fillRect(rect, QColor(255, 170, 0, 80)) # Orange-ish semi-transparent
+                    painter.fillRect(rect, QColor(255, 170, 0, 80))
                     break
             
             if is_selected:
-                painter.setPen(QColor("#ffffff")) # White text for selected
+                painter.setPen(QColor("#ffffff"))
                 f = painter.font()
                 f.setBold(True)
                 painter.setFont(f)
             else:
-                painter.setPen(font_color if font_color else default_color) # Gray text for normal
+                painter.setPen(font_color if font_color else default_color)
                 f = painter.font()
                 f.setBold(False)
                 painter.setFont(f)
@@ -323,7 +312,7 @@ class WaveformCanvas(QWidget):
             
             # Subtle vertical grid line
             painter.setPen(QColor("#333333"))
-            painter.drawLine(x, 0, x, height)
+            painter.drawLine(int(x), v_scroll, int(x), height)
 
     def draw_signal(self, painter: QPainter, signal: Signal, y: int, is_dragging=False, override_values=None, highlight_ranges=None, width=None, text_color=None):
         if width is None: width = self.width()
@@ -527,6 +516,7 @@ class WaveformCanvas(QWidget):
     def draw_selection_highlight(self, painter: QPainter):
         # Draw All Selected Regions
         cw = self.project.cycle_width
+        v_scroll = self.get_v_scroll()
         
         # Use Preview regions if moving, else actual selection
         regions_to_draw = self.selected_regions
@@ -548,15 +538,21 @@ class WaveformCanvas(QWidget):
             painter.setPen(QPen(QColor("#ffaa00"), 3)) # Orange highlight
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawRect(rect)
+            
+            # Vertical lines extending to the sticky header
+            painter.setPen(QPen(QColor(255, 255, 255, 100), 1, Qt.PenStyle.DotLine))
+            painter.drawLine(int(x1), int(y), int(x1), int(v_scroll + self.header_height))
+            painter.drawLine(int(x2), int(y), int(x2), int(v_scroll + self.header_height))
         
     def draw_guide(self, painter: QPainter):
         if not self.hover_pos: return
         sig_idx, cycle_idx = self.hover_pos
         cw = self.project.cycle_width
+        v_scroll = self.get_v_scroll()
         
-        # Highlight Cycle Column
+        # Highlight Cycle Column (starting from sticky header)
         x = self.signal_header_width + cycle_idx * cw
-        painter.fillRect(int(x), 0, int(cw), int(self.height()), QColor(255, 255, 255, 10))
+        painter.fillRect(int(x), int(v_scroll + self.header_height), int(cw), int(self.height() - (v_scroll + self.header_height)), QColor(255, 255, 255, 10))
         
         # Highlight Signal Row
         y = self.header_height + sig_idx * self.row_height

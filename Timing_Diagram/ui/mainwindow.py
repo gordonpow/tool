@@ -402,6 +402,9 @@ class MainWindow(QMainWindow):
         self.scroll_area.setWidget(self.canvas)
         self.scroll_area.setWidgetResizable(True) # Resize to content
         
+        # Sticky Header Sync: Repaint when scrolling
+        self.scroll_area.verticalScrollBar().valueChanged.connect(lambda: self.canvas.update())
+        
         right_layout.addWidget(self.scroll_area)
         
         # Connect Selection
