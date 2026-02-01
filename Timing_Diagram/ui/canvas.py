@@ -144,7 +144,7 @@ class WaveformCanvas(QWidget):
             h = self.row_height
             sub_rows = 0
             
-            if signal.type == SignalType.BUS and signal.expanded and signal.bus_width > 0:
+            if signal.type == SignalType.BUS_DATA and signal.expanded and signal.bus_width > 0:
                 sub_rows = signal.bus_width
                 h += sub_rows * self.row_height
             
@@ -423,7 +423,7 @@ class WaveformCanvas(QWidget):
         painter.setPen(text_color if text_color else QColor("#e0e0e0"))
         
         name_str = signal.name
-        if signal.type == SignalType.BUS and signal.bus_width > 0:
+        if signal.type == SignalType.BUS_DATA and signal.bus_width > 0:
              # Draw Button
              btn_rect = QRect(2, y + 10, 16, 16)
              if signal_index >= 0:
@@ -465,7 +465,7 @@ class WaveformCanvas(QWidget):
         path = QPainterPath()
         
         # --- BUS RENDER LOGIC (Merged) ---
-        if signal.type == SignalType.BUS:
+        if signal.type in [SignalType.BUS_DATA, SignalType.BUS_STATE]:
             # Group consecutive identical values
             groups = []
             if self.project.total_cycles > 0:
@@ -518,9 +518,8 @@ class WaveformCanvas(QWidget):
                     painter.drawLine(x1, mid_y, x2, mid_y)
                 else:
                     # Determine Shape based on Flavor
-                    flavor = getattr(signal, 'bus_flavor', 'DATA')
                     
-                    if flavor == 'STATE':
+                    if signal.type == SignalType.BUS_STATE:
                         # Rounded Rectangle
                         rect = QRectF(x1, y + 4, x2 - x1, self.row_height - 8)
                         painter.setBrush(QBrush(QColor(fill_color.red(), fill_color.green(), fill_color.blue(), 100)))
@@ -528,6 +527,7 @@ class WaveformCanvas(QWidget):
                         painter.setBrush(Qt.BrushStyle.NoBrush)
                     else:
                         # Standard Hexagon (DATA)
+
                         slant = 5
                         poly_pts = [
                             QPoint(int(x1), int(mid_y)),
@@ -1688,7 +1688,7 @@ class WaveformCanvas(QWidget):
              
              if x > self.signal_header_width and 0 <= sig_idx < len(self.project.signals):
                  signal = self.project.signals[sig_idx]
-                 if signal.type == SignalType.BUS:
+                 if signal.type in [SignalType.BUS_DATA, SignalType.BUS_STATE]:
                      cw = self.project.cycle_width
                      cycle_idx = int((x - self.signal_header_width) / cw)
                      
@@ -2033,7 +2033,7 @@ class WaveformCanvas(QWidget):
         o_start = new_cycle
         o_end = new_cycle
         
-        if signal.type == SignalType.BUS and val != 'X':
+        if signal.type in [SignalType.BUS_DATA, SignalType.BUS_STATE] and val != 'X':
              # Expand block (BUS Logic)
              for t in range(new_cycle, -1, -1):
                 if signal.get_value_at(t) == val:

@@ -108,8 +108,8 @@ class MainWindow(QMainWindow):
             # Add some demo signals if nothing pinned
             self.project.add_signal(Signal(name="i_clk", type=SignalType.CLK, color="#00ff00"))
             self.project.add_signal(Signal(name="i_rst", type=SignalType.INPUT, color="#ff5555"))
-            self.project.add_signal(Signal(name="ADDR", type=SignalType.BUS, color="#00d2ff"))
-            self.project.add_signal(Signal(name="DATA_RD", type=SignalType.BUS, color="#ffff00"))
+            self.project.add_signal(Signal(name="ADDR", type=SignalType.BUS_DATA, color="#00d2ff"))
+            self.project.add_signal(Signal(name="DATA_RD", type=SignalType.BUS_DATA, color="#ffff00"))
         
         # Settings Store
         from PyQt6.QtCore import QSettings
@@ -328,16 +328,6 @@ class MainWindow(QMainWindow):
         display_base_row.addWidget(self.bus_display_base_combo)
         bus_layout.addLayout(display_base_row)
         
-        # Flavor (Data vs State)
-        flavor_row = QHBoxLayout()
-        flavor_row.addWidget(QLabel("Bus Type:"))
-        self.bus_flavor_combo = QComboBox()
-        self.bus_flavor_combo.addItem("Data Bus", "DATA")
-        self.bus_flavor_combo.addItem("State Machine", "STATE")
-        self.bus_flavor_combo.currentIndexChanged.connect(self.update_signal_properties)
-        flavor_row.addWidget(self.bus_flavor_combo)
-        bus_layout.addLayout(flavor_row)
-        
         left_layout.addWidget(self.bus_config_container)
         self.bus_config_container.setVisible(False)
         
@@ -458,7 +448,7 @@ class MainWindow(QMainWindow):
                      for (sig_idx, start, end) in self.canvas.selected_regions:
                          if 0 <= sig_idx < len(self.project.signals):
                              sig = self.project.signals[sig_idx]
-                             if sig.type == SignalType.BUS:
+                             if sig.type in [SignalType.BUS_DATA, SignalType.BUS_STATE]:
                                  for t in range(start, end + 1):
                                      sig.set_value_at(t, 'X')
                      
@@ -719,13 +709,10 @@ class MainWindow(QMainWindow):
             idx_disp = self.bus_display_base_combo.findData(signal.display_base)
             if idx_disp >= 0: self.bus_display_base_combo.setCurrentIndex(idx_disp)
 
-            idx_flav = self.bus_flavor_combo.findData(signal.bus_flavor)
-            if idx_flav >= 0: self.bus_flavor_combo.setCurrentIndex(idx_flav)
-            else: self.bus_flavor_combo.setCurrentIndex(0)
-
-            self.bus_config_container.setVisible(signal.type == SignalType.BUS)
+            is_bus = (signal.type in [SignalType.BUS_DATA, SignalType.BUS_STATE])
+            self.bus_config_container.setVisible(is_bus)
             
-            is_data = (signal.bus_flavor == 'DATA')
+            is_data = (signal.type == SignalType.BUS_DATA)
             self.bus_width_check.setVisible(is_data)
             self.bus_width_spin.setVisible(is_data)
             
@@ -733,7 +720,6 @@ class MainWindow(QMainWindow):
             self.bus_width_spin.blockSignals(False)
             self.bus_input_base_combo.blockSignals(False)
             self.bus_display_base_combo.blockSignals(False)
-            self.bus_flavor_combo.blockSignals(False)
             
             # Auto-Focus and Select Name for quick editing
             self.name_edit.setFocus()
@@ -779,11 +765,9 @@ class MainWindow(QMainWindow):
                 signal.clk_mod = self.clk_mod_spin.value()
                 
             # Save Bus Properties
-            if signal.type == SignalType.BUS:
-                flavor = self.bus_flavor_combo.currentData()
-                signal.bus_flavor = flavor
-                
-                is_data = (flavor == 'DATA')
+            is_bus = (signal.type in [SignalType.BUS_DATA, SignalType.BUS_STATE])
+            if is_bus:
+                is_data = (signal.type == SignalType.BUS_DATA)
                 self.bus_width_check.setVisible(is_data)
                 self.bus_width_spin.setVisible(is_data)
                 
@@ -800,7 +784,7 @@ class MainWindow(QMainWindow):
             # Update Visibility
             self.clk_edge_combo.setVisible(signal.type == SignalType.CLK)
             self.clk_mod_container.setVisible(signal.type == SignalType.CLK)
-            self.bus_config_container.setVisible(signal.type == SignalType.BUS)
+            self.bus_config_container.setVisible(is_bus)
 
             self.save_pinned_signals()
 
@@ -1130,7 +1114,7 @@ class MainWindow(QMainWindow):
             
             # Verify if this is a Bus Signal
             if 0 <= s_idx < len(self.project.signals):
-                if self.project.signals[s_idx].type == SignalType.BUS:
+                if self.project.signals[s_idx].type in [SignalType.BUS_DATA, SignalType.BUS_STATE]:
                     sig_idx = s_idx
                     start = s_start
                     end = s_end

@@ -8,7 +8,8 @@ class SignalType(Enum):
     OUTPUT = "Output"
     INOUT = "Inout"
     CLK = "Clock"
-    BUS = "Bus"
+    BUS_DATA = "Bus (Data)"
+    BUS_STATE = "Bus (State)"
 
 @dataclass
 class Signal:
@@ -32,7 +33,6 @@ class Signal:
     input_base: int = 10
     display_base: int = 16
     expanded: bool = False
-    bus_flavor: str = "DATA" # "DATA" or "STATE"
     
     def set_value_at(self, cycle_index: int, value: str):
         # Extend list if needed
@@ -60,7 +60,6 @@ class Signal:
             'input_base': self.input_base,
             'display_base': self.display_base,
             'expanded': self.expanded,
-            'bus_flavor': self.bus_flavor,
         }
 
 
@@ -68,8 +67,19 @@ class Signal:
     def from_dict(cls, data):
         s = cls(name=data.get('name', 'New Signal'))
         type_name = data.get('type', 'INPUT')
-        if type_name in SignalType.__members__:
+        
+        # Migration from legacy 'BUS' type
+        if type_name == 'BUS':
+            flavor = data.get('bus_flavor', 'DATA')
+            if flavor == 'STATE':
+                s.type = SignalType.BUS_STATE
+            else:
+                s.type = SignalType.BUS_DATA
+        elif type_name in SignalType.__members__:
             s.type = SignalType[type_name]
+        else:
+            s.type = SignalType.INPUT # Fallback
+
         s.color = data.get('color', '#00d2ff')
         s.values = data.get('values', [])
         s.value_colors = data.get('value_colors', {})
@@ -80,7 +90,7 @@ class Signal:
         s.input_base = data.get('input_base', 10)
         s.display_base = data.get('display_base', 16)
         s.expanded = data.get('expanded', False)
-        s.bus_flavor = data.get('bus_flavor', "DATA")
+        # Note: 'bus_flavor' is no longer stored on the object, it's encoded in the type
         return s
 
 @dataclass
