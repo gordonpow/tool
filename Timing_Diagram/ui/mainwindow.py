@@ -11,6 +11,7 @@ from core.models import Project, Signal, SignalType
 from ui.editor_panel import BusEditorPanel
 from ui.canvas import WaveformCanvas
 from ui.data_generator_dialog import DataGeneratorDialog
+from ui.import_dialog import ImportDialog
 from core.undo_manager import UndoManager
 
 class PropertyNameLineEdit(QLineEdit):
@@ -167,6 +168,11 @@ class MainWindow(QMainWindow):
         save_proj_action = file_menu.addAction("Save Project")
         save_proj_action.setShortcut(QKeySequence("Ctrl+S"))
         save_proj_action.triggered.connect(self.save_project)
+        
+        file_menu.addSeparator()
+        
+        import_hdl_action = file_menu.addAction("Import from HDL...")
+        import_hdl_action.triggered.connect(self.import_hdl_signals)
         
         file_menu.addSeparator()
         
