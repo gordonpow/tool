@@ -831,7 +831,18 @@ class WaveformCanvas(QWidget):
              cw = self.project.cycle_width
              # Calculate current cycle
              current_cycle = int((x - self.signal_header_width) / cw)
-             current_cycle = max(0, min(current_cycle, self.project.total_cycles - 1))
+             current_cycle = max(0, current_cycle)
+             
+             # --- AUTO-EXPANSION logic ---
+             if current_cycle >= self.project.total_cycles:
+                 if self.auto_scroll_direction == 0:
+                     # Expand project to accommodate drag
+                     self.project.total_cycles = current_cycle + 1
+                     self.cycles_changed.emit(self.project.total_cycles)
+                     self.update_dimensions()
+                 else:
+                     # Cap at current end when auto-scrolling
+                     current_cycle = self.project.total_cycles - 1
              
              signal = self.project.signals[self.edit_signal_index]
              
@@ -883,9 +894,6 @@ class WaveformCanvas(QWidget):
                          right_bound = t - 1
                          break
              
-             # Clamp cursor to bounds
-             # clamped_cycle = max(left_bound, min(current_cycle, right_bound)) # Old Snap Logic
-             
              # RELATIVE DRAG LOGIC
              delta = current_cycle - self.edit_start_cycle
              
@@ -924,13 +932,6 @@ class WaveformCanvas(QWidget):
                  if final_start > self.edit_orig_start:
                      for t in range(self.edit_orig_start, final_start):
                          signal.set_value_at(t, 'X')
-            
-             self.data_changed.emit()
-             # Emit update to sync Editor Panel
-             self.region_updated.emit(self.edit_signal_index, final_start, final_end)
-                 
-             self.update()
-             return
             
              self.data_changed.emit()
              # Emit update to sync Editor Panel
@@ -1396,6 +1397,7 @@ class WaveformCanvas(QWidget):
 
         if self.is_editing_duration:
             self.is_editing_duration = False
+            self.is_duration_dragged = False
             self.edit_signal_index = None
             self.edit_value = None
             self.edit_mode = None
