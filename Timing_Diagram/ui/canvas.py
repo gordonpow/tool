@@ -269,7 +269,7 @@ class WaveformCanvas(QWidget):
         
         # Draw Sticky Background
         painter.fillRect(0, v_scroll, width, self.header_height, QColor("#1e1e1e"))
-        painter.setPen(QPen(QColor("#333333"), 1))
+        painter.setPen(QPen(QColor("#282828"), 1))
         painter.drawLine(0, v_scroll + self.header_height, width, v_scroll + self.header_height)
         
         # Draw Cycle Numbers
@@ -311,7 +311,7 @@ class WaveformCanvas(QWidget):
             painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, str(t))
             
             # Subtle vertical grid line
-            painter.setPen(QColor("#333333"))
+            painter.setPen(QColor("#282828"))
             painter.drawLine(int(x), v_scroll, int(x), height)
 
     def draw_signal(self, painter: QPainter, signal: Signal, y: int, is_dragging=False, override_values=None, highlight_ranges=None, width=None, text_color=None):
@@ -319,7 +319,7 @@ class WaveformCanvas(QWidget):
         
         if is_dragging:
             painter.setOpacity(0.8)
-            painter.fillRect(0, y, width, self.row_height, QColor("#333333"))
+            painter.fillRect(0, y, width, self.row_height, QColor("#282828"))
         
         # Draw Signal Name
         name_rect = QRect(0, y, self.signal_header_width - 10, self.row_height)
@@ -328,7 +328,7 @@ class WaveformCanvas(QWidget):
         
         # Draw separating line
         if not is_dragging:
-            painter.setPen(QColor("#333333"))
+            painter.setPen(QColor("#282828"))
             painter.drawLine(0, y + self.row_height, width, y + self.row_height)
         
         # Draw Waveform
