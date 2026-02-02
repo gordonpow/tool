@@ -234,6 +234,7 @@ class MainWindow(QMainWindow):
         
         # --- Left Panel: Controls ---
         left_panel = QFrame()
+        left_panel.setMinimumWidth(220) # Ensure visibility of list and pin icons
         left_layout = QVBoxLayout(left_panel)
         
         left_layout.addWidget(QLabel("Signals"))
@@ -424,6 +425,7 @@ class MainWindow(QMainWindow):
         
         # --- Right Panel: Editor ---
         self.editor_panel = BusEditorPanel()
+        self.editor_panel.setMinimumWidth(280) # Ensure editor content is readable
         self.editor_panel.before_change.connect(self.undo_manager.request_snapshot) # Lazy Snapshot (Request)
         self.editor_panel.changed.connect(self.undo_manager.commit_snapshot) # Commit if requested
         self.editor_panel.changed.connect(self.on_editor_changed)
@@ -438,7 +440,8 @@ class MainWindow(QMainWindow):
         self.editor_panel.mode_combo.currentIndexChanged.connect(self.on_editor_mode_changed)
         layout.addWidget(self.editor_panel) # Not in splitter, fixed right? Or in splitter? User said "Directly on right". Layout usually fine.
         
-        splitter.setSizes([250, 950])
+        # Distribute space: Left (280px), Center (flexible), Right (280px via layout)
+        splitter.setSizes([280, 1000])
 
         self.refresh_list()
 
