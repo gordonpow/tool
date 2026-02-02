@@ -195,6 +195,14 @@ class WaveformCanvas(QWidget):
         painter.setFont(font)
         
         # Draw Content
+        # Draw Background Grid FIRST
+        # Calculate a suitable grid color based on background vs font
+        # For export, we likely want a slightly visible grid.
+        # If font is white, grid should be light gray. If font is black, grid dark gray.
+        gc = QColor(font_color)
+        gc.setAlpha(40) # Subtle
+        self.draw_grid_to_background(painter, full_w, full_h, 0, grid_color=gc)
+
         self.draw_header(painter, settings.get('font_color'), width=full_w, height=full_h, v_scroll=0)
         
         for i, signal in enumerate(self.project.signals):
@@ -204,10 +212,11 @@ class WaveformCanvas(QWidget):
         painter.end()
         return img
 
-    def draw_grid_to_background(self, painter: QPainter, width: int, height: int, v_scroll: int):
+    def draw_grid_to_background(self, painter: QPainter, width: int, height: int, v_scroll: int, grid_color=None):
         """Draws vertical cycle lines and horizontal signal separators in the background."""
         cw = self.project.cycle_width
-        grid_color = QColor("#282828")
+        if grid_color is None:
+            grid_color = QColor("#282828")
         painter.setPen(QPen(grid_color, 1))
 
         # Vertical Cycle Lines
