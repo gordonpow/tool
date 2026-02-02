@@ -234,7 +234,7 @@ class MainWindow(QMainWindow):
         
         # --- Left Panel: Controls ---
         left_panel = QFrame()
-        left_panel.setMinimumWidth(220) # Ensure visibility of list and pin icons
+        left_panel.setMinimumWidth(220) 
         left_layout = QVBoxLayout(left_panel)
         
         left_layout.addWidget(QLabel("Signals"))
@@ -278,14 +278,18 @@ class MainWindow(QMainWindow):
         prop_scroll.setFrameShape(QFrame.Shape.NoFrame)
         prop_widget = QWidget()
         self.prop_layout = QVBoxLayout(prop_widget)
-        self.prop_layout.setContentsMargins(0, 5, 0, 5)
+        self.prop_layout.setContentsMargins(0, 5, 5, 5) # Margin for scrollbar
+        
+        # --- MIDDLE: Signal Settings ---
+        self.prop_layout.addWidget(QLabel("<b>Signal Settings</b>"))
         
         # Name
-        self.prop_layout.addWidget(QLabel("Name:"))
         self.name_edit = PropertyNameLineEdit()
+        self.name_edit.setPlaceholderText("Signal Name")
         self.name_edit.textChanged.connect(self.on_name_changed)
         self.name_edit.delete_pressed.connect(self.remove_signal)
-        self.prop_layout.addWidget(self.name_edit)
+        name_row = QHBoxLayout(); name_row.addWidget(QLabel("Name:")); name_row.addWidget(self.name_edit)
+        self.prop_layout.addLayout(name_row)
         
         # Type
         self.prop_layout.addWidget(QLabel("Type:"))
@@ -320,20 +324,11 @@ class MainWindow(QMainWindow):
         self.clk_mod_container = QWidget(); mod_layout = QHBoxLayout(self.clk_mod_container); mod_layout.setContentsMargins(0,0,0,0); mod_layout.addWidget(QLabel("Mod:")); self.clk_mod_spin = QSpinBox(); self.clk_mod_spin.setRange(1, 100); self.clk_mod_spin.valueChanged.connect(self.update_signal_properties); mod_layout.addWidget(self.clk_mod_spin)
         self.prop_layout.addWidget(self.clk_mod_container); self.clk_mod_container.setVisible(False)
         
-        # Color
-        self.prop_layout.addWidget(QLabel("Color:"))
         color_row = QHBoxLayout(); self.color_btn = QPushButton("Select"); self.color_btn.clicked.connect(self.pick_signal_color); color_row.addWidget(self.color_btn); self.color_preview = QLabel("   "); self.color_preview.setFixedWidth(40); self.color_preview.setStyleSheet("border: 1px solid #555; background-color: transparent;"); color_row.addWidget(self.color_preview)
         self.prop_layout.addLayout(color_row)
         
-        # --- NEW: Integrated Range Editor (Formerly on the far right) ---
-        self.editor_panel = BusEditorPanel()
-        self.editor_panel.setVisible(True) # Force visibility
-        
-        # Defer signal connections that depend on self.canvas until after canvas is created
-        
-        self.prop_layout.addSpacing(15)
-        self.prop_layout.addWidget(QLabel("<b>Selection Properties</b>"))
-        self.prop_layout.addWidget(self.editor_panel)
+        # Push everything up
+        self.prop_layout.addStretch()
         
         prop_scroll.setWidget(prop_widget)
         left_layout.addWidget(prop_scroll)
@@ -368,7 +363,6 @@ class MainWindow(QMainWindow):
         self.btn_export.clicked.connect(self.export_image)
         top_bar.addWidget(self.btn_export)
         
-        left_layout.addStretch()
         right_layout.addLayout(top_bar)
         
         self.canvas = WaveformCanvas(self.project)
@@ -407,8 +401,15 @@ class MainWindow(QMainWindow):
         
         splitter.addWidget(right_panel)
         
-        # Distribute space: Left (300px), Center (flexible)
-        splitter.setSizes([300, 1000])
+        # --- NEW: Right Panel (Selection Editor) ---
+        right_ctrl_panel = QFrame()
+        right_ctrl_layout = QVBoxLayout(right_ctrl_panel)
+        self.editor_panel = BusEditorPanel()
+        right_ctrl_layout.addWidget(self.editor_panel)
+        splitter.addWidget(right_ctrl_panel)
+        
+        # Distribute space: Left (250px), Center (flexible), Right (250px)
+        splitter.setSizes([250, 800, 250])
 
         self.refresh_list()
 
@@ -687,7 +688,7 @@ class MainWindow(QMainWindow):
             self.clk_mod_spin.blockSignals(False)
             
             # Bus Props
-            is_bus_data = (signal.type == SignalType.BUS_DATA)
+            is_bus_data = (signal.type in [SignalType.BUS_DATA, SignalType.BUS_STATE])
             self.bus_config_container.setVisible(is_bus_data)
             if is_bus_data:
                 self.bus_bits_spin.blockSignals(True)
@@ -703,6 +704,13 @@ class MainWindow(QMainWindow):
                 self.bus_display_base_combo.setCurrentIndex(base_to_idx.get(signal.display_base, 2))
                 self.bus_display_base_combo.blockSignals(False)
             
+            # Sync / Reset Editor Panel based on type
+            if is_bus_data:
+                 # Auto-load the editor if it's a bus signal for the current cycle (default 0 or last used)
+                 self.editor_panel.load_target(signal, self.editor_panel.current_cycle_idx, self.project.total_cycles)
+            else:
+                 self.editor_panel.reset()
+
             # Auto-Focus and Select Name for quick editing
             self.name_edit.setFocus()
             self.name_edit.selectAll()
