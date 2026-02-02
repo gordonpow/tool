@@ -1192,6 +1192,13 @@ class WaveformCanvas(QWidget):
                   if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
                       pass # Fall through to selection logic
                   else:
+                      # Fix: Emit sync signals before return to ensure Property panel updates
+                      cw = self.project.cycle_width
+                      cycle_idx = int((x - self.signal_header_width) / cw)
+                      
+                      self.signal_clicked.emit(sig_idx)
+                      self.bus_selected.emit(sig_idx, cycle_idx)
+                      
                       self.before_change.emit() # Snapshot before Drag-Paint or Toggle
                       self.paint_start_pos = event.pos()
                       self.paint_val = '1' if event.button() == Qt.MouseButton.LeftButton else '0'
