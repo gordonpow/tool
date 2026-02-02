@@ -405,6 +405,8 @@ class MainWindow(QMainWindow):
         self.canvas.zoom_changed.connect(self.width_spin.setValue)
         self.canvas.signal_clicked.connect(self.signal_list.setCurrentRow)
         
+        splitter.addWidget(right_panel)
+        
         # Distribute space: Left (300px), Center (flexible)
         splitter.setSizes([300, 1000])
 
@@ -489,7 +491,7 @@ class MainWindow(QMainWindow):
             # end = self.editor_panel.end_spin.value()
             # self.canvas.selected_region = (sig_idx, start, end)
             
-            self.canvas.update()
+            self.safe_canvas_update()
 
     def on_region_updated(self, sig_idx, start, end):
         # Called when dragging on canvas to extend/reduce duration
@@ -513,7 +515,8 @@ class MainWindow(QMainWindow):
         self.editor_panel.duration_spin.blockSignals(False)
         
         # Update Canvas Selection Highlight
-        self.canvas.selected_region = (sig_idx, start, end)
+        if hasattr(self, 'canvas') and self.canvas:
+            self.canvas.selected_region = (sig_idx, start, end)
         self.set_dirty(True)
 
     def on_cycles_changed(self, new_total):
@@ -524,7 +527,8 @@ class MainWindow(QMainWindow):
     def on_editor_mode_changed(self, index):
         mode_text = self.editor_panel.mode_combo.currentText()
         is_insert = (mode_text == "Insert")
-        self.canvas.is_insert_mode = is_insert
+        if hasattr(self, 'canvas') and self.canvas:
+            self.canvas.is_insert_mode = is_insert
 
     def on_editor_changed(self, val, color, start, end):
         # Update logic from editor
@@ -617,11 +621,9 @@ class MainWindow(QMainWindow):
             
              # Update selection highlight to match new range
              # Find signal index?
-             if signal in self.project.signals:
-                 sig_idx = self.project.signals.index(signal)
+             if hasattr(self, 'canvas') and self.canvas:
                  self.canvas.selected_region = (sig_idx, start, end)
-
-             self.canvas.update()
+                 self.safe_canvas_update()
              self.set_dirty(True)
 
     def refresh_list(self):
@@ -715,6 +717,14 @@ class MainWindow(QMainWindow):
                 self.color_preview.setStyleSheet(f"background-color: {color.name()}; border: 1px solid #e0e0e0;")
                 self.update_signal_properties()
 
+    def safe_canvas_update(self):
+        """Helper to update canvas safely, avoiding 'RuntimeError: wrapped C/C++ object has been deleted'"""
+        if hasattr(self, 'canvas') and self.canvas:
+            try:
+                self.canvas.update()
+            except RuntimeError:
+                pass
+
     def update_signal_properties(self):
         row = self.signal_list.currentRow()
         if row >= 0:
@@ -757,7 +767,7 @@ class MainWindow(QMainWindow):
             self.save_pinned_signals()
 
             self.refresh_list()
-            self.canvas.update()
+            self.safe_canvas_update()
             self.set_dirty(True)
 
     def on_list_reordered(self):
@@ -770,14 +780,15 @@ class MainWindow(QMainWindow):
                 new_signals.append(signal)
         
         self.project.signals = new_signals
-        self.canvas.update()
+        self.safe_canvas_update()
         self.set_dirty(True)
 
     def update_global_settings(self):
         self.project.total_cycles = self.cycles_spin.value()
         self.project.cycle_width = self.width_spin.value()
-        self.canvas.update_dimensions()
-        self.canvas.update()
+        if hasattr(self, 'canvas') and self.canvas:
+            self.canvas.update_dimensions()
+        self.safe_canvas_update()
         self.set_dirty(True)
 
     def generate_distinct_color(self):
@@ -996,12 +1007,13 @@ class MainWindow(QMainWindow):
             self.project = Project.from_dict(data)
             
             # Rebind Canvas
-            self.canvas.project = self.project
+            if hasattr(self, 'canvas') and self.canvas:
+                self.canvas.project = self.project
+                self.canvas.update_dimensions()
             
             # Refresh UI
             self.refresh_list()
-            self.canvas.update_dimensions()
-            self.canvas.update()
+            self.safe_canvas_update()
             
             # Reset editors
             self.editor_panel.reset()
@@ -1076,7 +1088,7 @@ class MainWindow(QMainWindow):
         start = 0
         end = self.project.total_cycles - 1
         
-        if self.canvas.selected_regions:
+        if hasattr(self, 'canvas') and self.canvas and self.canvas.selected_regions:
             # Use the last selected region
             s_idx, s_start, s_end = self.canvas.selected_regions[-1]
             
@@ -1104,7 +1116,7 @@ class MainWindow(QMainWindow):
         # I will push before Exec. If cancel, one extra undo step (No-op). Acceptable.
         
         if dlg.exec():
-            self.canvas.update()
+            self.safe_canvas_update()
             self.set_dirty(True)
             self.refresh_global_controls() # If cycles expanded
 
@@ -1126,16 +1138,15 @@ class MainWindow(QMainWindow):
         self.cycles_spin.blockSignals(True)
         self.cycles_spin.setValue(self.project.total_cycles)
         self.cycles_spin.blockSignals(False)
-        self.canvas.cycles_changed.emit(self.project.total_cycles)
         
-        # 3. Canvas
-        self.canvas.update()
+        if hasattr(self, 'canvas') and self.canvas:
+            self.canvas.cycles_changed.emit(self.project.total_cycles)
+            self.safe_canvas_update()
+            
+            # 4. Editor Panel (Clear)
+            self.canvas.selected_regions = []
+            self.canvas.bus_selected.emit(-1, -1)
         
-        # 4. Editor Panel (Clear)
-        self.canvas.selected_regions = []
-        self.canvas.bus_selected.emit(-1, -1) # Clear selection in UI?
-        # Or keep it? The Undo might have restored a deleted signal.
-        # Clearing selection is safest to avoid Index Errors until we have robust tracking.
         self.editor_panel.reset()
 
     def import_hdl_signals(self):
@@ -1149,7 +1160,7 @@ class MainWindow(QMainWindow):
                     sig.color = self.generate_distinct_color()
                     self.project.add_signal(sig)
                 self.refresh_list()
-                self.canvas.update()
+                self.safe_canvas_update()
                 self.set_dirty(True)
                 QMessageBox.information(self, "Import Successful", f"Imported {len(new_signals)} signals.")
 
