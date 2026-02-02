@@ -25,7 +25,8 @@ class Signal:
     height: int = 40
     clk_rising_edge: bool = True # True: Low->High (Pos Edge), False: High->Low (Neg Edge)
     clk_mod: int = 1 # Clock Divider/Modifier (1 = standard, 2 = div 2, etc.)
-    pinned: bool = False # Pinned signals are saved/restored
+    pinned: bool = False # Pinned signals are saved/restored (Persistence Pinning)
+    sticky: bool = False # Stuck to top when scrolling (Display Pinning)
     
     # BUS[data] properties
     bits: int = 8
@@ -87,6 +88,7 @@ class Signal:
             'clk_rising_edge': self.clk_rising_edge,
             'clk_mod': self.clk_mod,
             'pinned': self.pinned,
+            'sticky': self.sticky,
             'bits': self.bits,
             'input_base': self.input_base,
             'display_base': self.display_base
@@ -110,6 +112,7 @@ class Signal:
         s.clk_rising_edge = data.get('clk_rising_edge', True)
         s.clk_mod = data.get('clk_mod', 1)
         s.pinned = data.get('pinned', False)
+        s.sticky = data.get('sticky', False)
         s.bits = data.get('bits', 8)
         s.input_base = data.get('input_base', 16)
         s.display_base = data.get('display_base', 16)

@@ -111,30 +111,30 @@ class WaveformCanvas(QWidget):
                    return True
         return False
 
-    def get_pinned_indices(self):
-        """Returns indices of signals that are pinned."""
-        return [i for i, s in enumerate(self.project.signals) if s.pinned]
+    def get_sticky_indices(self):
+        """Returns indices of signals that are sticky (display pinning)."""
+        return [i for i, s in enumerate(self.project.signals) if s.sticky]
 
     def get_signal_layout(self, v_scroll):
         """
         Calculates the visual layout mapping:
         - normal_y_map: sig_idx -> absolute y in the widget
-        - visual_layout: List of (sig_idx, visual_y, is_pinned_overlay)
+        - visual_layout: List of (sig_idx, visual_y, is_sticky_overlay)
         """
         normal_y_map = {}
         for i in range(len(self.project.signals)):
             normal_y_map[i] = self.header_height + i * self.row_height
 
-        pinned_indices = self.get_pinned_indices()
+        sticky_indices = self.get_sticky_indices()
         visual_layout = []
         
         # 1. Add all normal signals (Static background positions)
         for i in range(len(self.project.signals)):
             visual_layout.append((i, normal_y_map[i], False))
             
-        # 2. Add pinned overlays if they are scrolled up
+        # 2. Add sticky overlays if they are scrolled up
         overlay_y = v_scroll + self.header_height
-        for idx in pinned_indices:
+        for idx in sticky_indices:
             orig_y = normal_y_map[idx]
             # If the signal's normal position is above the current view area (Header)
             if orig_y < v_scroll + self.header_height:
@@ -406,10 +406,21 @@ class WaveformCanvas(QWidget):
             painter.setOpacity(0.8)
             painter.fillRect(0, y, width, self.row_height, QColor("#282828"))
         
+        # --- Draw Sticky Toggle Icon ---
+        # Positioned at the very left (x=5)
+        sticky_icon_rect = QRect(5, y + (self.row_height - 16) // 2, 16, 16)
+        painter.setPen(QColor("#888" if not signal.sticky else "#ffaa00"))
+        
+        # Draw a simple Pin representation (Square head and a line)
+        pin_font = painter.font()
+        pin_font.setPointSize(10)
+        painter.setFont(pin_font)
+        painter.drawText(sticky_icon_rect, Qt.AlignmentFlag.AlignCenter, "📌" if signal.sticky else "📍")
+
         # Draw Signal Name
-        name_rect = QRect(0, y, self.signal_header_width - 10, self.row_height)
+        name_rect = QRect(25, y, self.signal_header_width - 35, self.row_height)
         painter.setPen(text_color if text_color else QColor("#e0e0e0"))
-        painter.drawText(name_rect, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, signal.name)
+        painter.drawText(name_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, signal.name)
         
         # Draw Waveform
         cw = self.project.cycle_width
@@ -1155,6 +1166,15 @@ class WaveformCanvas(QWidget):
         
         sig_idx = self.get_signal_index_at_y(y, v_scroll)
         
+        if sig_idx is not None and 0 <= sig_idx < len(self.project.signals):
+            # --- Check for Sticky Icon Click ---
+            # Icon is at x in [5, 21]
+            if 5 <= x <= 25:
+                signal = self.project.signals[sig_idx]
+                signal.sticky = not signal.sticky
+                self.update()
+                return
+
         if sig_idx is not None and 0 <= sig_idx < len(self.project.signals) and x > self.signal_header_width:
              signal = self.project.signals[sig_idx]
              
