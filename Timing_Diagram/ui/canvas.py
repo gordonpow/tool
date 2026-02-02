@@ -111,6 +111,58 @@ class WaveformCanvas(QWidget):
                    return True
         return False
 
+    def get_pinned_indices(self):
+        """Returns indices of signals that are pinned."""
+        return [i for i, s in enumerate(self.project.signals) if s.pinned]
+
+    def get_signal_layout(self, v_scroll):
+        """
+        Calculates the visual layout mapping:
+        - normal_y_map: sig_idx -> absolute y in the widget
+        - visual_layout: List of (sig_idx, visual_y, is_pinned_overlay)
+        """
+        normal_y_map = {}
+        for i in range(len(self.project.signals)):
+            normal_y_map[i] = self.header_height + i * self.row_height
+
+        pinned_indices = self.get_pinned_indices()
+        visual_layout = []
+        
+        # 1. Add all normal signals (Static background positions)
+        for i in range(len(self.project.signals)):
+            visual_layout.append((i, normal_y_map[i], False))
+            
+        # 2. Add pinned overlays if they are scrolled up
+        overlay_y = v_scroll + self.header_height
+        for idx in pinned_indices:
+            orig_y = normal_y_map[idx]
+            # If the signal's normal position is above the current view area (Header)
+            if orig_y < v_scroll + self.header_height:
+                visual_layout.append((idx, overlay_y, True))
+                overlay_y += self.row_height
+                
+        return normal_y_map, visual_layout
+
+    def get_signal_index_at_y(self, y, v_scroll):
+        """Determines signal index at given Y coordinate, considering pinned overlays."""
+        _, visual_layout = self.get_signal_layout(v_scroll)
+        
+        # Check overlays first (Top-most)
+        overlays = [item for item in visual_layout if item[2]]
+        # Sort by visual_y descending to check the one on top of others if they overlap? 
+        # Actually sorted ascending (top to bottom) is better.
+        for sig_idx, vis_y, is_overlay in reversed(overlays):
+            if vis_y <= y < vis_y + self.row_height:
+                return sig_idx
+                
+        # Check normal signals
+        for sig_idx, vis_y, is_overlay in visual_layout:
+            if not is_overlay:
+                if vis_y <= y < vis_y + self.row_height:
+                    return sig_idx
+                    
+        return None
+
     def get_v_scroll(self):
         """Helper to find the vertical scroll value of the parent QScrollArea."""
         parent = self.parent()
@@ -177,38 +229,55 @@ class WaveformCanvas(QWidget):
         
         v_scroll = self.get_v_scroll()
         
+        # 0. Get Layout
+        normal_y_map, visual_layout = self.get_signal_layout(v_scroll)
+        
         # 1. Draw Background Grid (Behind signals)
         self.draw_grid_to_background(painter, self.width(), self.height(), v_scroll)
         
-        # 2. Draw Signals
-        for i, signal in enumerate(self.project.signals):
-            # If dragging this signal, draw it at the dragged position later (or transparent here)
-            if i == self.dragging_signal_index:
+        # 2. Draw Signals (Normal Layer)
+        for sig_idx, y, is_overlay in visual_layout:
+            if is_overlay: continue # Draw overlays later
+            
+            if sig_idx == self.dragging_signal_index:
                 continue
                 
-            y = self.header_height + i * self.row_height
+            signal = self.project.signals[sig_idx]
             
             # Check for Preview Override
             override = None
-            # CHANGED: preview_signal_values is now a dict {sig_idx: list}
-            if self.is_moving_block and self.preview_signal_values and i in self.preview_signal_values:
-                override = self.preview_signal_values[i]
+            if self.is_moving_block and self.preview_signal_values and sig_idx in self.preview_signal_values:
+                override = self.preview_signal_values[sig_idx]
             
-            # Highlight Dragged Blocks:
-            # We convert float preview regions to integer intervals for highlighting
             highlights = []
             if self.is_moving_block and hasattr(self, 'preview_selection_regions') and self.preview_selection_regions:
                  for (s_idx, start, end) in self.preview_selection_regions:
-                     if s_idx == i:
+                     if s_idx == sig_idx:
                          highlights.append((int(round(start)), int(round(end))))
                 
             self.draw_signal(painter, signal, y, is_dragging=False, override_values=override, highlight_ranges=highlights)
 
-        # 2. Draw Sticky Header (ON TOP of signals)
+        # 3. Draw Pinned Overlays (Floating Layer)
+        # Sort overlays to ensure they stack correctly if needed (already sorted in get_signal_layout)
+        for sig_idx, y, is_overlay in visual_layout:
+            if not is_overlay: continue
+            
+            signal = self.project.signals[sig_idx]
+            
+            # Draw semi-opaque background for overlay to obscure the scrolling signals behind it
+            painter.fillRect(0, y, self.width(), self.row_height, QColor(30,30,30, 230))
+            # Draw a subtle separator at the bottom
+            painter.setPen(QPen(QColor("#444"), 1))
+            painter.drawLine(0, y + self.row_height - 1, self.width(), y + self.row_height - 1)
+            
+            self.draw_signal(painter, signal, y, is_dragging=False)
+
+        # 4. Draw Sticky Header (ON TOP of everything)
         self.draw_header(painter, v_scroll=v_scroll)
 
         # 3. Draw UI Overlays (Dragged signal, selection, guide)
         if self.dragging_signal_index is not None:
+            v_scroll = self.get_v_scroll()
             signal = self.project.signals[self.dragging_signal_index]
             drag_y = int(self.current_drag_y - self.row_height/2)
             self.draw_signal(painter, signal, drag_y, is_dragging=True)
@@ -216,6 +285,7 @@ class WaveformCanvas(QWidget):
             # Draw drop indicator
             drop_idx = self.get_drop_index(self.current_drag_y)
             if drop_idx is not None:
+                # Reorder index is always based on NORMAL layout
                 line_y = self.header_height + drop_idx * self.row_height
                 painter.setPen(QPen(QColor("#00ff00"), 2))
                 painter.drawLine(0, line_y, self.width(), line_y)
@@ -533,26 +603,32 @@ class WaveformCanvas(QWidget):
         if self.is_moving_block and hasattr(self, 'preview_selection_regions') and self.preview_selection_regions:
             regions_to_draw = self.preview_selection_regions
         
+        normal_y_map, visual_layout = self.get_signal_layout(v_scroll)
+
         for (sig_idx, start, end) in regions_to_draw:
             if sig_idx >= len(self.project.signals): continue
             
             x1 = self.signal_header_width + start * cw
             x2 = self.signal_header_width + (end + 1) * cw
             
-            y = self.header_height + sig_idx * self.row_height
+            # Use visual_y for highlight!
+            # Find visual_y from layout. We check if there's an overlay for this signal.
+            # If multiple instances (normal + overlay), we highlight both? 
+            # Usually users expect the one they see to be highlighted.
+            y_positions = [item[1] for item in visual_layout if item[0] == sig_idx]
             
-            # Draw explicit box (Yellow/Cyan) to show "Modify Position"
-            rect = QRect(int(x1), int(y), int(x2 - x1), int(self.row_height))
-            
-            # Outer glow/border
-            painter.setPen(QPen(QColor("#ffaa00"), 3)) # Orange highlight
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawRect(rect)
-            
-            # Vertical lines extending to the sticky header
-            painter.setPen(QPen(QColor(255, 255, 255, 100), 1, Qt.PenStyle.DotLine))
-            painter.drawLine(int(x1), int(y), int(x1), int(v_scroll + self.header_height))
-            painter.drawLine(int(x2), int(y), int(x2), int(v_scroll + self.header_height))
+            for y in y_positions:
+                rect = QRect(int(x1), int(y), int(x2 - x1), int(self.row_height))
+                
+                # Outer glow/border
+                painter.setPen(QPen(QColor("#ffaa00"), 3)) # Orange highlight
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.drawRect(rect)
+                
+                # Vertical lines extending to the sticky header
+                painter.setPen(QPen(QColor(255, 255, 255, 100), 1, Qt.PenStyle.DotLine))
+                painter.drawLine(int(x1), int(y), int(x1), int(v_scroll + self.header_height))
+                painter.drawLine(int(x2), int(y), int(x2), int(v_scroll + self.header_height))
         
     def draw_guide(self, painter: QPainter):
         if not self.hover_pos: return
@@ -564,10 +640,13 @@ class WaveformCanvas(QWidget):
         x = self.signal_header_width + cycle_idx * cw
         painter.fillRect(int(x), int(v_scroll + self.header_height), int(cw), int(self.height() - (v_scroll + self.header_height)), QColor(255, 255, 255, 10))
         
-        # Highlight Signal Row
-        y = self.header_height + sig_idx * self.row_height
+        # Highlight Signal Row (considering overlays)
+        normal_y_map, visual_layout = self.get_signal_layout(v_scroll)
+        y_positions = [item[1] for item in visual_layout if item[0] == sig_idx]
+        
         painter.setPen(QPen(QColor("#00d2ff"), 1, Qt.PenStyle.DashLine))
-        painter.drawRect(0, int(y), int(self.width()), int(self.row_height))
+        for y in y_positions:
+            painter.drawRect(0, int(y), int(self.width()), int(self.row_height))
         
 
     def get_block_bounds(self, signal, cycle_idx):
@@ -602,15 +681,17 @@ class WaveformCanvas(QWidget):
         y = event.pos().y()
         self.last_global_pos = event.globalPosition().toPoint()
         
-        # Update Hover Pos immediately for real-time feedback (Guide Line)
-        # We do this before drag checks so the guide follows even during operations
-        if x > self.signal_header_width and y > self.header_height:
+        v_scroll = self.get_v_scroll()
+        
+        # Update Hover Pos immediately
+        if x > self.signal_header_width:
             cw = self.project.cycle_width
             h_cycle_idx = (x - self.signal_header_width) // cw
-            h_sig_idx = (y - self.header_height) // self.row_height
+            # Use new mapping
+            h_sig_idx = self.get_signal_index_at_y(y, v_scroll)
             
-            if 0 <= h_sig_idx < len(self.project.signals) and 0 <= h_cycle_idx < self.project.total_cycles:
-                self.hover_pos = (h_sig_idx, h_cycle_idx)
+            if h_sig_idx is not None and 0 <= h_sig_idx < len(self.project.signals) and 0 <= h_cycle_idx < self.project.total_cycles:
+                self.hover_pos = (h_sig_idx, int(h_cycle_idx))
             else:
                 self.hover_pos = None
         else:
@@ -692,8 +773,9 @@ class WaveformCanvas(QWidget):
                 
             if self.is_painting:
                 # Paint!
-                sig_idx = (y - self.header_height) // self.row_height
-                if 0 <= sig_idx < len(self.project.signals):
+                v_scroll = self.get_v_scroll()
+                sig_idx = self.get_signal_index_at_y(y, v_scroll)
+                if sig_idx is not None and 0 <= sig_idx < len(self.project.signals):
                     # Ensure we are painting the same signal we started on?
                     # Or allow cross-lane painting?
                     # Usually stricter to keep to start signal or allow changing if we drag vertically?
@@ -1069,10 +1151,11 @@ class WaveformCanvas(QWidget):
         x = event.pos().x()
         y = event.pos().y()
         self.press_start_pos = event.pos()
+        v_scroll = self.get_v_scroll()
         
-        sig_idx = (y - self.header_height) // self.row_height
+        sig_idx = self.get_signal_index_at_y(y, v_scroll)
         
-        if 0 <= sig_idx < len(self.project.signals) and x > self.signal_header_width:
+        if sig_idx is not None and 0 <= sig_idx < len(self.project.signals) and x > self.signal_header_width:
              signal = self.project.signals[sig_idx]
              
              # --- New: Drag-to-Paint & Click Toggle (Binary) ---
@@ -1090,7 +1173,7 @@ class WaveformCanvas(QWidget):
         
         if event.button() == Qt.MouseButton.LeftButton:
             
-            if 0 <= sig_idx < len(self.project.signals):
+            if sig_idx is not None and 0 <= sig_idx < len(self.project.signals):
                 # Check for Drag Reorder (Click on Header/Name area)
                 if x < self.signal_header_width:
                      # Selection happens immediately
@@ -1263,9 +1346,10 @@ class WaveformCanvas(QWidget):
                                 
         elif event.button() == Qt.MouseButton.RightButton:
              # Check for Right Click -> X (For Bus?)
-             sig_idx = (y - self.header_height) // self.row_height
+             v_scroll = self.get_v_scroll()
+             sig_idx = self.get_signal_index_at_y(y, v_scroll)
              
-             if x > self.signal_header_width and 0 <= sig_idx < len(self.project.signals):
+             if sig_idx is not None and x > self.signal_header_width and 0 <= sig_idx < len(self.project.signals):
                  signal = self.project.signals[sig_idx]
                  if signal.type in [SignalType.BUS_DATA, SignalType.BUS_STATE]:
                      cw = self.project.cycle_width
@@ -1381,10 +1465,11 @@ class WaveformCanvas(QWidget):
                 x = event.pos().x()
                 y = event.pos().y()
                 cw = self.project.cycle_width
+                v_scroll = self.get_v_scroll()
                 cycle_idx = int((x - self.signal_header_width) / cw)
-                sig_idx = (y - self.header_height) // self.row_height
+                sig_idx = self.get_signal_index_at_y(y, v_scroll)
                 
-                if 0 <= sig_idx < len(self.project.signals):
+                if sig_idx is not None and 0 <= sig_idx < len(self.project.signals):
                     signal = self.project.signals[sig_idx]
                     # Double check type just in case
                     if signal.type in [SignalType.INPUT, SignalType.OUTPUT, SignalType.INOUT]:
