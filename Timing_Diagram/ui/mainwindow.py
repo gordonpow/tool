@@ -687,10 +687,13 @@ class MainWindow(QMainWindow):
             self.clk_mod_container.setVisible(signal.type == SignalType.CLK)
             self.clk_mod_spin.blockSignals(False)
             
-            # Bus Props
-            is_bus_data = (signal.type in [SignalType.BUS_DATA, SignalType.BUS_STATE])
-            self.bus_config_container.setVisible(is_bus_data)
-            if is_bus_data:
+            # Bus / Multi-bit Props
+            is_configurable = (signal.type in [SignalType.BUS_DATA, SignalType.BUS_STATE, SignalType.INPUT, SignalType.OUTPUT, SignalType.INOUT])
+            is_bus_config = (signal.type in [SignalType.BUS_DATA, SignalType.BUS_STATE])
+            
+            self.bus_config_container.setVisible(is_bus_config) # Bits/Base only for Bus
+            
+            if is_bus_config:
                 self.bus_bits_spin.blockSignals(True)
                 self.bus_bits_spin.setValue(signal.bits)
                 self.bus_bits_spin.blockSignals(False)
@@ -705,7 +708,9 @@ class MainWindow(QMainWindow):
                 self.bus_display_base_combo.blockSignals(False)
             
             # Sync / Reset Editor Panel based on type
-            if is_bus_data:
+            # Data editor is for BUS types or manual bit editing? 
+            # Usually users expect it for any "data" carrying signal.
+            if is_bus_config:
                  # Auto-load the editor if it's a bus signal for the current cycle (default 0 or last used)
                  self.editor_panel.load_target(signal, self.editor_panel.current_cycle_idx, self.project.total_cycles)
             else:
