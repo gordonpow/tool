@@ -326,18 +326,12 @@ class MainWindow(QMainWindow):
         self.prop_layout.addLayout(color_row)
         
         # --- NEW: Integrated Range Editor (Formerly on the far right) ---
+        self.editor_panel = BusEditorPanel()
+        
+        # Defer signal connections that depend on self.canvas until after canvas is created
+        
         self.prop_layout.addSpacing(15)
         self.prop_layout.addWidget(QLabel("Selection Properties"))
-        self.editor_panel = BusEditorPanel()
-        self.editor_panel.before_change.connect(self.undo_manager.request_snapshot)
-        self.editor_panel.changed.connect(self.undo_manager.commit_snapshot)
-        self.editor_panel.changed.connect(self.on_editor_changed)
-        self.editor_panel.navigation_requested.connect(self.canvas.move_selection)
-        self.editor_panel.copy_requested.connect(self.canvas.copy_selection)
-        self.editor_panel.paste_requested.connect(self.canvas.paste_selection)
-        self.editor_panel.undo_requested.connect(self.perform_undo)
-        self.editor_panel.redo_requested.connect(self.perform_redo)
-        self.editor_panel.mode_combo.currentIndexChanged.connect(self.on_editor_mode_changed)
         self.prop_layout.addWidget(self.editor_panel)
         
         self.prop_layout.addStretch()
@@ -383,6 +377,17 @@ class MainWindow(QMainWindow):
         # Also refresh list if structure changed (reordering in canvas)
         self.canvas.structure_changed.connect(self.refresh_list)
         
+        # Now connect Editor Signals (dependencies on canvas are now safe)
+        self.editor_panel.before_change.connect(self.undo_manager.request_snapshot)
+        self.editor_panel.changed.connect(self.undo_manager.commit_snapshot)
+        self.editor_panel.changed.connect(self.on_editor_changed)
+        self.editor_panel.navigation_requested.connect(self.canvas.move_selection)
+        self.editor_panel.copy_requested.connect(self.canvas.copy_selection)
+        self.editor_panel.paste_requested.connect(self.canvas.paste_selection)
+        self.editor_panel.undo_requested.connect(self.perform_undo)
+        self.editor_panel.redo_requested.connect(self.perform_redo)
+        self.editor_panel.mode_combo.currentIndexChanged.connect(self.on_editor_mode_changed)
+
         # Scroll Area
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidget(self.canvas)
