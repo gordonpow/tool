@@ -207,7 +207,7 @@ class WaveformCanvas(QWidget):
         
         for i, signal in enumerate(self.project.signals):
             y = self.header_height + i * self.row_height
-            self.draw_signal(painter, signal, y, width=full_w, text_color=font_color)
+            self.draw_signal(painter, signal, y, width=full_w, text_color=font_color, draw_ui=False)
 
         painter.end()
         return img
@@ -264,7 +264,7 @@ class WaveformCanvas(QWidget):
                      if s_idx == sig_idx:
                          highlights.append((int(round(start)), int(round(end))))
                 
-            self.draw_signal(painter, signal, y, is_dragging=False, override_values=override, highlight_ranges=highlights)
+            self.draw_signal(painter, signal, y, is_dragging=False, override_values=override, highlight_ranges=highlights, draw_ui=True)
 
         # 3. Draw Pinned Overlays (Floating Layer)
         # Sort overlays to ensure they stack correctly if needed (already sorted in get_signal_layout)
@@ -279,7 +279,7 @@ class WaveformCanvas(QWidget):
             painter.setPen(QPen(QColor("#444"), 1))
             painter.drawLine(0, y + self.row_height - 1, self.width(), y + self.row_height - 1)
             
-            self.draw_signal(painter, signal, y, is_dragging=False)
+            self.draw_signal(painter, signal, y, is_dragging=False, draw_ui=True)
 
         # 4. Draw Sticky Header (ON TOP of everything)
         self.draw_header(painter, v_scroll=v_scroll)
@@ -289,7 +289,7 @@ class WaveformCanvas(QWidget):
             v_scroll = self.get_v_scroll()
             signal = self.project.signals[self.dragging_signal_index]
             drag_y = int(self.current_drag_y - self.row_height/2)
-            self.draw_signal(painter, signal, drag_y, is_dragging=True)
+            self.draw_signal(painter, signal, drag_y, is_dragging=True, draw_ui=True)
             
             # Draw drop indicator
             drop_idx = self.get_drop_index(self.current_drag_y)
@@ -408,33 +408,36 @@ class WaveformCanvas(QWidget):
             
             painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, str(t))
 
-    def draw_signal(self, painter: QPainter, signal: Signal, y: int, is_dragging=False, override_values=None, highlight_ranges=None, width=None, text_color=None):
+    def draw_signal(self, painter: QPainter, signal: Signal, y: int, is_dragging=False, override_values=None, highlight_ranges=None, width=None, text_color=None, draw_ui=True):
         if width is None: width = self.width()
         
         if is_dragging:
             painter.setOpacity(0.8)
             painter.fillRect(0, y, width, self.row_height, QColor("#282828"))
         
-        # --- Draw Sticky Toggle Icon (Simplified Geometry) ---
-        # Positioned at the very left (x=5)
-        icon_x, icon_y = 8, y + (self.row_height - 10) // 2
-        icon_size = 10
-        
-        if signal.sticky:
-            # Filled Circle for "On" state
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QColor("#ffaa00"))
-            painter.drawEllipse(icon_x, icon_y, icon_size, icon_size)
-        else:
-            # Hollow Circle for "Off" state
-            painter.setPen(QPen(QColor("#666"), 1.5))
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawEllipse(icon_x, icon_y, icon_size, icon_size)
-        
-        painter.setBrush(Qt.BrushStyle.NoBrush) # Reset brush
+        if draw_ui:
+            # --- Draw Sticky Toggle Icon (Simplified Geometry) ---
+            # Positioned at the very left (x=8)
+            icon_x, icon_y = 8, y + (self.row_height - 10) // 2
+            icon_size = 10
+            
+            if signal.sticky:
+                # Filled Circle for "On" state
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(QColor("#ffaa00"))
+                painter.drawEllipse(icon_x, icon_y, icon_size, icon_size)
+            else:
+                # Hollow Circle for "Off" state
+                painter.setPen(QPen(QColor("#666"), 1.5))
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.drawEllipse(icon_x, icon_y, icon_size, icon_size)
+            
+            painter.setBrush(Qt.BrushStyle.NoBrush) # Reset brush
 
         # Draw Signal Name
-        name_rect = QRect(25, y, self.signal_header_width - 35, self.row_height)
+        # If UI is hidden, shift name to the left for better alignment
+        name_x = 25 if draw_ui else 8
+        name_rect = QRect(name_x, y, self.signal_header_width - (name_x + 10), self.row_height)
         painter.setPen(text_color if text_color else QColor("#e0e0e0"))
         painter.drawText(name_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, signal.name)
         
