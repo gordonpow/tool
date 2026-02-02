@@ -406,16 +406,23 @@ class WaveformCanvas(QWidget):
             painter.setOpacity(0.8)
             painter.fillRect(0, y, width, self.row_height, QColor("#282828"))
         
-        # --- Draw Sticky Toggle Icon ---
+        # --- Draw Sticky Toggle Icon (Simplified Geometry) ---
         # Positioned at the very left (x=5)
-        sticky_icon_rect = QRect(5, y + (self.row_height - 16) // 2, 16, 16)
-        painter.setPen(QColor("#888" if not signal.sticky else "#ffaa00"))
+        icon_x, icon_y = 8, y + (self.row_height - 10) // 2
+        icon_size = 10
         
-        # Draw a simple Pin representation (Square head and a line)
-        pin_font = painter.font()
-        pin_font.setPointSize(10)
-        painter.setFont(pin_font)
-        painter.drawText(sticky_icon_rect, Qt.AlignmentFlag.AlignCenter, "📌" if signal.sticky else "📍")
+        if signal.sticky:
+            # Filled Circle for "On" state
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor("#ffaa00"))
+            painter.drawEllipse(icon_x, icon_y, icon_size, icon_size)
+        else:
+            # Hollow Circle for "Off" state
+            painter.setPen(QPen(QColor("#666"), 1.5))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawEllipse(icon_x, icon_y, icon_size, icon_size)
+        
+        painter.setBrush(Qt.BrushStyle.NoBrush) # Reset brush
 
         # Draw Signal Name
         name_rect = QRect(25, y, self.signal_header_width - 35, self.row_height)
