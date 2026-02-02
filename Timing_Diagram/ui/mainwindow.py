@@ -327,14 +327,14 @@ class MainWindow(QMainWindow):
         
         # --- NEW: Integrated Range Editor (Formerly on the far right) ---
         self.editor_panel = BusEditorPanel()
+        self.editor_panel.setVisible(True) # Force visibility
         
         # Defer signal connections that depend on self.canvas until after canvas is created
         
         self.prop_layout.addSpacing(15)
-        self.prop_layout.addWidget(QLabel("Selection Properties"))
+        self.prop_layout.addWidget(QLabel("<b>Selection Properties</b>"))
         self.prop_layout.addWidget(self.editor_panel)
         
-        self.prop_layout.addStretch()
         prop_scroll.setWidget(prop_widget)
         left_layout.addWidget(prop_scroll)
 
@@ -622,8 +622,10 @@ class MainWindow(QMainWindow):
              # Update selection highlight to match new range
              # Find signal index?
              if hasattr(self, 'canvas') and self.canvas:
-                 self.canvas.selected_region = (sig_idx, start, end)
-                 self.safe_canvas_update()
+                 if signal in self.project.signals:
+                     sig_idx = self.project.signals.index(signal)
+                     self.canvas.selected_region = (sig_idx, start, end)
+                     self.safe_canvas_update()
              self.set_dirty(True)
 
     def refresh_list(self):
