@@ -371,6 +371,12 @@ class MainWindow(QMainWindow):
         # Also refresh list if structure changed (reordering in canvas)
         self.canvas.structure_changed.connect(self.refresh_list)
         
+        # --- NEW: Right Panel (Selection Editor) ---
+        right_ctrl_panel = QFrame()
+        right_ctrl_layout = QVBoxLayout(right_ctrl_panel)
+        self.editor_panel = BusEditorPanel()
+        right_ctrl_layout.addWidget(self.editor_panel)
+        
         # Now connect Editor Signals (dependencies on canvas are now safe)
         self.editor_panel.before_change.connect(self.undo_manager.request_snapshot)
         self.editor_panel.changed.connect(self.undo_manager.commit_snapshot)
@@ -400,12 +406,6 @@ class MainWindow(QMainWindow):
         self.canvas.signal_clicked.connect(self.signal_list.setCurrentRow)
         
         splitter.addWidget(right_panel)
-        
-        # --- NEW: Right Panel (Selection Editor) ---
-        right_ctrl_panel = QFrame()
-        right_ctrl_layout = QVBoxLayout(right_ctrl_panel)
-        self.editor_panel = BusEditorPanel()
-        right_ctrl_layout.addWidget(self.editor_panel)
         splitter.addWidget(right_ctrl_panel)
         
         # Distribute space: Left (250px), Center (flexible), Right (250px)
