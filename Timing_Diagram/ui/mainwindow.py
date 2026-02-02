@@ -269,95 +269,80 @@ class MainWindow(QMainWindow):
         left_layout.addLayout(btn_layout)
 
         # --- Property Editor ---
-        left_layout.addSpacing(20)
+        left_layout.addSpacing(10)
         left_layout.addWidget(QLabel("Properties"))
         
+        # We wrap properties in a scroll area if it gets too long
+        prop_scroll = QScrollArea()
+        prop_scroll.setWidgetResizable(True)
+        prop_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        prop_widget = QWidget()
+        self.prop_layout = QVBoxLayout(prop_widget)
+        self.prop_layout.setContentsMargins(0, 5, 0, 5)
+        
         # Name
-        left_layout.addWidget(QLabel("Name:"))
+        self.prop_layout.addWidget(QLabel("Name:"))
         self.name_edit = PropertyNameLineEdit()
         self.name_edit.textChanged.connect(self.on_name_changed)
         self.name_edit.delete_pressed.connect(self.remove_signal)
-        left_layout.addWidget(self.name_edit)
+        self.prop_layout.addWidget(self.name_edit)
         
         # Type
-        left_layout.addWidget(QLabel("Type:"))
+        self.prop_layout.addWidget(QLabel("Type:"))
         self.type_combo = QComboBox()
         for t in SignalType:
-            # User requirement: BUS -> BUS[data] / BUS[state]
             display_name = t.value
             self.type_combo.addItem(display_name, t)
         self.type_combo.currentIndexChanged.connect(self.update_signal_properties)
-        left_layout.addWidget(self.type_combo)
+        self.prop_layout.addWidget(self.type_combo)
         
-        # BUS DATA Config (Visible only for BUS_DATA)
+        # BUS DATA Config
         self.bus_config_container = QWidget()
         bus_layout = QVBoxLayout(self.bus_config_container)
         bus_layout.setContentsMargins(0, 0, 0, 0)
-        
-        # Bit Width
         self.bus_bits_spin = QSpinBox()
         self.bus_bits_spin.setRange(1, 128)
         self.bus_bits_spin.valueChanged.connect(self.update_signal_properties)
-        bus_row1 = QHBoxLayout()
-        bus_row1.addWidget(QLabel("Bits:"))
-        bus_row1.addWidget(self.bus_bits_spin)
+        bus_row1 = QHBoxLayout(); bus_row1.addWidget(QLabel("Bits:")); bus_row1.addWidget(self.bus_bits_spin)
         bus_layout.addLayout(bus_row1)
-        
-        # Raw Base (Input)
-        self.bus_input_base_combo = QComboBox()
-        self.bus_input_base_combo.addItems(["Bin (2)", "Oct (8)", "Dec (10)", "Hex (16)"])
-        self.bus_input_base_combo.currentIndexChanged.connect(self.update_signal_properties)
-        bus_row2 = QHBoxLayout()
-        bus_row2.addWidget(QLabel("Raw Base:"))
-        bus_row2.addWidget(self.bus_input_base_combo)
+        self.bus_input_base_combo = QComboBox(); self.bus_input_base_combo.addItems(["Bin (2)", "Oct (8)", "Dec (10)", "Hex (16)"]); self.bus_input_base_combo.currentIndexChanged.connect(self.update_signal_properties)
+        bus_row2 = QHBoxLayout(); bus_row2.addWidget(QLabel("Raw Base:")); bus_row2.addWidget(self.bus_input_base_combo)
         bus_layout.addLayout(bus_row2)
-        
-        # Display Base
-        self.bus_display_base_combo = QComboBox()
-        self.bus_display_base_combo.addItems(["Bin (2)", "Oct (8)", "Dec (10)", "Hex (16)"])
-        self.bus_display_base_combo.currentIndexChanged.connect(self.update_signal_properties)
-        bus_row3 = QHBoxLayout()
-        bus_row3.addWidget(QLabel("Disp Base:"))
-        bus_row3.addWidget(self.bus_display_base_combo)
+        self.bus_display_base_combo = QComboBox(); self.bus_display_base_combo.addItems(["Bin (2)", "Oct (8)", "Dec (10)", "Hex (16)"]); self.bus_display_base_combo.currentIndexChanged.connect(self.update_signal_properties)
+        bus_row3 = QHBoxLayout(); bus_row3.addWidget(QLabel("Disp Base:")); bus_row3.addWidget(self.bus_display_base_combo)
         bus_layout.addLayout(bus_row3)
-        
-        left_layout.addWidget(self.bus_config_container)
+        self.prop_layout.addWidget(self.bus_config_container)
         self.bus_config_container.setVisible(False)
 
-        # Clock Edge Config (Visible only for Clock)
-        self.clk_edge_combo = QComboBox()
-        self.clk_edge_combo.addItems(["Rising Edge (Pos)", "Falling Edge (Neg)"])
-        self.clk_edge_combo.currentIndexChanged.connect(self.update_signal_properties)
-        self.clk_edge_combo.setVisible(False)
-        left_layout.addWidget(self.clk_edge_combo)
-
-        # Clock Mod (Visible only for Clock)
-        self.clk_mod_container = QWidget()
-        mod_layout = QHBoxLayout(self.clk_mod_container)
-        mod_layout.setContentsMargins(0,0,0,0)
-        mod_layout.addWidget(QLabel("Mod:"))
-        self.clk_mod_spin = QSpinBox()
-        self.clk_mod_spin.setRange(1, 100)
-        self.clk_mod_spin.valueChanged.connect(self.update_signal_properties)
-        mod_layout.addWidget(self.clk_mod_spin)
-        left_layout.addWidget(self.clk_mod_container)
-        self.clk_mod_container.setVisible(False)
+        # Clock Config
+        self.clk_edge_combo = QComboBox(); self.clk_edge_combo.addItems(["Rising Edge (Pos)", "Falling Edge (Neg)"]); self.clk_edge_combo.currentIndexChanged.connect(self.update_signal_properties); self.clk_edge_combo.setVisible(False)
+        self.prop_layout.addWidget(self.clk_edge_combo)
+        self.clk_mod_container = QWidget(); mod_layout = QHBoxLayout(self.clk_mod_container); mod_layout.setContentsMargins(0,0,0,0); mod_layout.addWidget(QLabel("Mod:")); self.clk_mod_spin = QSpinBox(); self.clk_mod_spin.setRange(1, 100); self.clk_mod_spin.valueChanged.connect(self.update_signal_properties); mod_layout.addWidget(self.clk_mod_spin)
+        self.prop_layout.addWidget(self.clk_mod_container); self.clk_mod_container.setVisible(False)
         
         # Color
-        left_layout.addWidget(QLabel("Color:"))
-        color_row = QHBoxLayout()
-        self.color_btn = QPushButton("Select")
-        self.color_btn.clicked.connect(self.pick_signal_color)
-        color_row.addWidget(self.color_btn)
+        self.prop_layout.addWidget(QLabel("Color:"))
+        color_row = QHBoxLayout(); self.color_btn = QPushButton("Select"); self.color_btn.clicked.connect(self.pick_signal_color); color_row.addWidget(self.color_btn); self.color_preview = QLabel("   "); self.color_preview.setFixedWidth(40); self.color_preview.setStyleSheet("border: 1px solid #555; background-color: transparent;"); color_row.addWidget(self.color_preview)
+        self.prop_layout.addLayout(color_row)
         
-        self.color_preview = QLabel("   ")
-        self.color_preview.setFixedWidth(40)
-        self.color_preview.setStyleSheet("border: 1px solid #555; background-color: transparent;")
-        color_row.addWidget(self.color_preview)
+        # --- NEW: Integrated Range Editor (Formerly on the far right) ---
+        self.prop_layout.addSpacing(15)
+        self.prop_layout.addWidget(QLabel("Selection Properties"))
+        self.editor_panel = BusEditorPanel()
+        self.editor_panel.before_change.connect(self.undo_manager.request_snapshot)
+        self.editor_panel.changed.connect(self.undo_manager.commit_snapshot)
+        self.editor_panel.changed.connect(self.on_editor_changed)
+        self.editor_panel.navigation_requested.connect(self.canvas.move_selection)
+        self.editor_panel.copy_requested.connect(self.canvas.copy_selection)
+        self.editor_panel.paste_requested.connect(self.canvas.paste_selection)
+        self.editor_panel.undo_requested.connect(self.perform_undo)
+        self.editor_panel.redo_requested.connect(self.perform_redo)
+        self.editor_panel.mode_combo.currentIndexChanged.connect(self.on_editor_mode_changed)
+        self.prop_layout.addWidget(self.editor_panel)
         
-        left_layout.addLayout(color_row)
-        
-        left_layout.addStretch()
+        self.prop_layout.addStretch()
+        prop_scroll.setWidget(prop_widget)
+        left_layout.addWidget(prop_scroll)
 
         
         splitter.addWidget(left_panel)
@@ -415,33 +400,8 @@ class MainWindow(QMainWindow):
         self.canvas.zoom_changed.connect(self.width_spin.setValue)
         self.canvas.signal_clicked.connect(self.signal_list.setCurrentRow)
         
-        splitter.addWidget(right_panel)
-        
-        # Connect Undo Logic
-        # Connect Undo Logic
-        self.canvas.before_change.connect(self.undo_manager.request_snapshot) # Lazy Snapshot (Request)
-        self.canvas.data_changed.connect(self.undo_manager.commit_snapshot) # Commit if requested
-
-        
-        # --- Right Panel: Editor ---
-        self.editor_panel = BusEditorPanel()
-        self.editor_panel.setMinimumWidth(280) # Ensure editor content is readable
-        self.editor_panel.before_change.connect(self.undo_manager.request_snapshot) # Lazy Snapshot (Request)
-        self.editor_panel.changed.connect(self.undo_manager.commit_snapshot) # Commit if requested
-        self.editor_panel.changed.connect(self.on_editor_changed)
-        self.editor_panel.navigation_requested.connect(self.canvas.move_selection)
-        
-        # Connect Explicit Copy/Paste Signals from Editor (since shortcuts might be blocked)
-        self.editor_panel.copy_requested.connect(self.canvas.copy_selection)
-        self.editor_panel.paste_requested.connect(self.canvas.paste_selection)
-        self.editor_panel.undo_requested.connect(self.perform_undo)
-        self.editor_panel.redo_requested.connect(self.perform_redo)
-        
-        self.editor_panel.mode_combo.currentIndexChanged.connect(self.on_editor_mode_changed)
-        layout.addWidget(self.editor_panel) # Not in splitter, fixed right? Or in splitter? User said "Directly on right". Layout usually fine.
-        
-        # Distribute space: Left (280px), Center (flexible), Right (280px via layout)
-        splitter.setSizes([280, 1000])
+        # Distribute space: Left (300px), Center (flexible)
+        splitter.setSizes([300, 1000])
 
         self.refresh_list()
 
@@ -501,10 +461,18 @@ class MainWindow(QMainWindow):
 
     def on_bus_selected(self, sig_idx, cycle_idx):
         if 0 <= sig_idx < len(self.project.signals):
+            # Sync Signal List Selection
+            self.signal_list.blockSignals(True)
+            self.signal_list.setCurrentRow(sig_idx)
+            self.signal_list.blockSignals(False)
+            
+            # Sync Properties Panel (Force refresh)
+            self.on_signal_selected(sig_idx)
+            
             signal = self.project.signals[sig_idx]
             self.editor_panel.load_target(signal, cycle_idx, self.project.total_cycles)
             
-            # Sync mode state (load_target might have reset it or we just need to ensure canvas knows)
+            # Sync mode state
             self.on_editor_mode_changed(self.editor_panel.mode_combo.currentIndex())
             
             # REMOVED: Do not force-set canvas selection here. 
