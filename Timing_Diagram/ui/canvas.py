@@ -721,8 +721,8 @@ class WaveformCanvas(QWidget):
         self.last_global_pos = event.globalPosition()
         
         # 0. Handle Panning (Middle Button Long Press)
-        if self.is_panning and self.pan_start_pos:
-            delta = event.pos() - self.pan_start_pos
+        if self.is_panning and hasattr(self, 'pan_start_global_pos'):
+            delta = event.globalPosition().toPoint() - self.pan_start_global_pos
             
             parent = self.parent()
             while parent and not isinstance(parent, QScrollArea):
@@ -1214,6 +1214,7 @@ class WaveformCanvas(QWidget):
         # --- Handle Middle Button for Panning ---
         if event.button() == Qt.MouseButton.MiddleButton:
             self.pan_start_pos = event.pos()
+            self.pan_start_global_pos = event.globalPosition().toPoint()
             
             parent = self.parent()
             while parent and not isinstance(parent, QScrollArea):
