@@ -30,8 +30,8 @@ class Signal:
     
     # BUS[data] properties
     bits: int = 8
-    input_base: int = 16  # 2, 10, 16
-    display_base: int = 16 # 2, 10, 16
+    input_base: int = 10  # 2, 10, 16 (Default to Decimal)
+    display_base: int = 10 # 2, 10, 16 (Default to Decimal)
     
     def format_bus_value(self, val: str) -> str:
         if self.type != SignalType.BUS_DATA or val in ['X', 'Z', '']:

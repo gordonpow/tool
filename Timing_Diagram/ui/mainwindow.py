@@ -309,10 +309,10 @@ class MainWindow(QMainWindow):
         self.bus_bits_spin.valueChanged.connect(self.update_signal_properties)
         bus_row1 = QHBoxLayout(); bus_row1.addWidget(QLabel("Bits:")); bus_row1.addWidget(self.bus_bits_spin)
         bus_layout.addLayout(bus_row1)
-        self.bus_input_base_combo = QComboBox(); self.bus_input_base_combo.addItems(["Bin (2)", "Oct (8)", "Dec (10)", "Hex (16)"]); self.bus_input_base_combo.currentIndexChanged.connect(self.update_signal_properties)
+        self.bus_input_base_combo = QComboBox(); self.bus_input_base_combo.addItems(["Bin (2)", "Oct (8)", "Dec (10)", "Hex (16)"]); self.bus_input_base_combo.setCurrentIndex(2); self.bus_input_base_combo.currentIndexChanged.connect(self.update_signal_properties)
         bus_row2 = QHBoxLayout(); bus_row2.addWidget(QLabel("Raw Base:")); bus_row2.addWidget(self.bus_input_base_combo)
         bus_layout.addLayout(bus_row2)
-        self.bus_display_base_combo = QComboBox(); self.bus_display_base_combo.addItems(["Bin (2)", "Oct (8)", "Dec (10)", "Hex (16)"]); self.bus_display_base_combo.currentIndexChanged.connect(self.update_signal_properties)
+        self.bus_display_base_combo = QComboBox(); self.bus_display_base_combo.addItems(["Bin (2)", "Oct (8)", "Dec (10)", "Hex (16)"]); self.bus_display_base_combo.setCurrentIndex(2); self.bus_display_base_combo.currentIndexChanged.connect(self.update_signal_properties)
         bus_row3 = QHBoxLayout(); bus_row3.addWidget(QLabel("Disp Base:")); bus_row3.addWidget(self.bus_display_base_combo)
         bus_layout.addLayout(bus_row3)
         self.prop_layout.addWidget(self.bus_config_container)
@@ -771,8 +771,8 @@ class MainWindow(QMainWindow):
             if signal.type == SignalType.BUS_DATA:
                 signal.bits = self.bus_bits_spin.value()
                 idx_to_base = {0:2, 1:8, 2:10, 3:16}
-                signal.input_base = idx_to_base.get(self.bus_input_base_combo.currentIndex(), 16)
-                signal.display_base = idx_to_base.get(self.bus_display_base_combo.currentIndex(), 16)
+                signal.input_base = idx_to_base.get(self.bus_input_base_combo.currentIndex(), 10)
+                signal.display_base = idx_to_base.get(self.bus_display_base_combo.currentIndex(), 10)
 
             # Update Visibility
             self.clk_edge_combo.setVisible(signal.type == SignalType.CLK)
