@@ -1466,16 +1466,17 @@ class WaveformCanvas(QWidget):
         self.reorder_candidate_idx = None
         self.scroll_timer.stop()
         self.auto_scroll_direction = 0
+        self.long_press_timer.stop()
+        self.middle_long_press_timer.stop()
+        self.setCursor(Qt.CursorShape.ArrowCursor)
+        self.is_selection_sweeping = False
         self.allow_immediate_move = False # Reset immediate move flag
         
         # Handle Middle Button Release
         if event.button() == Qt.MouseButton.MiddleButton:
-            self.middle_long_press_timer.stop()
             self.is_panning = False
             self.pan_start_pos = None
-            self.setCursor(Qt.CursorShape.ArrowCursor)
             self.update()
-            return
 
         # Handle deferred selection reset (Click without Drag)
         if hasattr(self, 'pending_selection_reset') and self.pending_selection_reset:
