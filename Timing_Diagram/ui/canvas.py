@@ -212,7 +212,7 @@ class WaveformCanvas(QWidget):
         gc.setAlpha(40) # Subtle
         self.draw_grid_to_background(painter, full_w, full_h, 0, grid_color=gc)
 
-        self.draw_header(painter, settings.get('font_color'), width=full_w, height=full_h, v_scroll=0)
+        self.draw_header(painter, settings.get('font_color'), width=full_w, height=full_h, v_scroll=0, show_selection=False)
         
         for i, signal in enumerate(self.project.signals):
             y = self.header_height + i * self.row_height
@@ -369,7 +369,7 @@ class WaveformCanvas(QWidget):
         idx = max(0, min(idx, len(self.project.signals)))
         return idx
 
-    def draw_header(self, painter: QPainter, font_color=None, width=None, height=None, v_scroll=0):
+    def draw_header(self, painter: QPainter, font_color=None, width=None, height=None, v_scroll=0, show_selection=True):
         if width is None: width = self.width()
         if height is None: height = self.height()
         default_color = QColor("#808080")
@@ -398,11 +398,12 @@ class WaveformCanvas(QWidget):
             
             # Highlight selected cycles in header
             is_selected = False
-            for (sig, start, end) in regions_to_check:
-                if start <= t <= end:
-                    is_selected = True
-                    painter.fillRect(rect, QColor(255, 170, 0, 80))
-                    break
+            if show_selection:
+                for (sig, start, end) in regions_to_check:
+                    if start <= t <= end:
+                        is_selected = True
+                        painter.fillRect(rect, QColor(255, 170, 0, 80))
+                        break
             
             if is_selected:
                 painter.setPen(QColor("#ffffff"))
