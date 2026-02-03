@@ -80,6 +80,15 @@ class WaveformCanvas(QWidget):
         self.scroll_timer.setInterval(50) 
         self.scroll_timer.timeout.connect(self.process_auto_scroll)
         self.auto_scroll_direction = 0
+
+        # Middle-Button Panning State
+        self.is_panning = False
+        self.pan_start_pos = None
+        self.pan_start_scroll_x = 0
+        self.pan_start_scroll_y = 0
+        self.middle_long_press_timer = QTimer()
+        self.middle_long_press_timer.setSingleShot(True)
+        self.middle_long_press_timer.timeout.connect(self.start_panning)
         
         self.update_dimensions()
 
@@ -709,8 +718,21 @@ class WaveformCanvas(QWidget):
     def mouseMoveEvent(self, event):
         x = event.pos().x()
         y = event.pos().y()
-        self.last_global_pos = event.globalPosition().toPoint()
+        self.last_global_pos = event.globalPosition()
         
+        # 0. Handle Panning (Middle Button Long Press)
+        if self.is_panning and self.pan_start_pos:
+            delta = event.pos() - self.pan_start_pos
+            
+            parent = self.parent()
+            while parent and not isinstance(parent, QScrollArea):
+                parent = parent.parent()
+            if parent:
+                parent.horizontalScrollBar().setValue(self.pan_start_scroll_x - delta.x())
+                parent.verticalScrollBar().setValue(self.pan_start_scroll_y - delta.y())
+            return
+
+        # 1. Handle Selection Sweeping
         v_scroll = self.get_v_scroll()
         
         # Update Hover Pos immediately
@@ -1175,6 +1197,12 @@ class WaveformCanvas(QWidget):
         # Activated after Timer
         self.start_moving_block()
 
+    def start_panning(self):
+        """Initiates the panning mode."""
+        self.is_panning = True
+        self.setCursor(Qt.CursorShape.ClosedHandCursor)
+        self.update()
+
     def mousePressEvent(self, event):
         self.setFocus() # Ensure we get keyboard events (e.g. keyPress)
         
@@ -1183,6 +1211,20 @@ class WaveformCanvas(QWidget):
         self.press_start_pos = event.pos()
         v_scroll = self.get_v_scroll()
         
+        # --- Handle Middle Button for Panning ---
+        if event.button() == Qt.MouseButton.MiddleButton:
+            self.pan_start_pos = event.pos()
+            
+            parent = self.parent()
+            while parent and not isinstance(parent, QScrollArea):
+                parent = parent.parent()
+            if parent:
+                self.pan_start_scroll_x = parent.horizontalScrollBar().value()
+                self.pan_start_scroll_y = parent.verticalScrollBar().value()
+            
+            self.middle_long_press_timer.start(200) # 200ms delay for long press
+            return
+
         sig_idx = self.get_signal_index_at_y(y, v_scroll)
         
         if sig_idx is not None and 0 <= sig_idx < len(self.project.signals):
@@ -1423,11 +1465,17 @@ class WaveformCanvas(QWidget):
         self.reorder_candidate_idx = None
         self.scroll_timer.stop()
         self.auto_scroll_direction = 0
-        self.long_press_timer.stop()
-        self.setCursor(Qt.CursorShape.ArrowCursor)
-        self.is_selection_sweeping = False
         self.allow_immediate_move = False # Reset immediate move flag
         
+        # Handle Middle Button Release
+        if event.button() == Qt.MouseButton.MiddleButton:
+            self.middle_long_press_timer.stop()
+            self.is_panning = False
+            self.pan_start_pos = None
+            self.setCursor(Qt.CursorShape.ArrowCursor)
+            self.update()
+            return
+
         # Handle deferred selection reset (Click without Drag)
         if hasattr(self, 'pending_selection_reset') and self.pending_selection_reset:
              # Reset ONLY if we did NOT move a block AND did NOT drag duration
