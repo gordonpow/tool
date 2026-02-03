@@ -50,6 +50,7 @@ class DataGeneratorDialog(QDialog):
         self.var_table.setColumnCount(4)
         self.var_table.setHorizontalHeaderLabels(["Name", "Start", "End", "Step"])
         self.var_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.var_table.itemChanged.connect(self.update_preview) # Real-time preview
         layout.addWidget(self.var_table)
         
         btn_layout = QHBoxLayout()
@@ -63,9 +64,14 @@ class DataGeneratorDialog(QDialog):
         
         # Add default 'x' variable
         self.add_variable_row("x", 0, 9, 1)
+
+        # Connect formula changed
+        self.formula_input.textChanged.connect(self.update_preview)
         
         # 4. Preview / Info
         self.info_label = QLabel("Result: (Preview will appear here)")
+        self.info_label.setStyleSheet("color: #00d2ff; font-weight: bold;")
+        self.info_label.setWordWrap(True)
         layout.addWidget(self.info_label)
         
         # 5. Buttons
@@ -78,7 +84,73 @@ class DataGeneratorDialog(QDialog):
         action_layout.addWidget(self.generate_btn)
         action_layout.addWidget(self.cancel_btn)
         layout.addLayout(action_layout)
+
+        # Initial preview
+        self.update_preview()
         
+    def update_preview(self):
+        formula = self.formula_input.text().strip()
+        if not formula:
+            self.info_label.setText("Result: (Enter formula)")
+            return
+
+        # 1. Parse Variables
+        variables = {}
+        for r in range(self.var_table.rowCount()):
+            name_item = self.var_table.item(r, 0)
+            start_item = self.var_table.item(r, 1)
+            end_item = self.var_table.item(r, 2)
+            step_item = self.var_table.item(r, 3)
+            
+            if not (name_item and start_item and end_item and step_item):
+                continue
+                
+            name = name_item.text().strip()
+            if not name: continue
+            try:
+                variables[name] = {
+                    'start': float(start_item.text()),
+                    'end': float(end_item.text()),
+                    'step': float(step_item.text()),
+                    'current': float(start_item.text())
+                }
+                if variables[name]['step'] == 0: variables[name]['step'] = 1
+            except:
+                continue
+
+        # 2. Evaluate first few samples
+        preview_values = []
+        try:
+            start_cycle = self.start_spin.value()
+            for t in range(start_cycle, start_cycle + 5):
+                # Context
+                eval_context = {}
+                for v_name, v_data in variables.items():
+                    eval_context[v_name] = v_data['current']
+                    # Local update for next cycle in preview
+                    nxt = v_data['current'] + v_data['step']
+                    if v_data['step'] > 0:
+                        if nxt > v_data['end']: nxt = v_data['start']
+                    else:
+                        if nxt < v_data['end']: nxt = v_data['start']
+                    v_data['current'] = nxt
+                
+                eval_context.update(math.__dict__)
+                eval_context['t'] = t
+                eval_context['i'] = t - start_cycle
+
+                # Eval
+                res = eval(formula, {"__builtins__": {}}, eval_context)
+                if isinstance(res, float) and res.is_integer():
+                    res = int(res)
+                preview_values.append(str(res))
+
+            self.info_label.setText(f"Result Preview: {', '.join(preview_values)} ...")
+            self.info_label.setStyleSheet("color: #00ff00;") # Green for success
+        except Exception as e:
+            self.info_label.setText(f"Result: (Error) {str(e)}")
+            self.info_label.setStyleSheet("color: #ff5555;") # Red for error
+
     def populate_signals(self, initial_idx):
         self.signal_map = [] # stores logical index
         for i, sig in enumerate(self.project.signals):
