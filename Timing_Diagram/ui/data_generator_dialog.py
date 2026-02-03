@@ -50,7 +50,6 @@ class DataGeneratorDialog(QDialog):
         self.var_table.setColumnCount(4)
         self.var_table.setHorizontalHeaderLabels(["Name", "Start", "End", "Step"])
         self.var_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self.var_table.itemChanged.connect(self.update_preview) # Real-time preview
         layout.addWidget(self.var_table)
         
         btn_layout = QHBoxLayout()
@@ -61,13 +60,6 @@ class DataGeneratorDialog(QDialog):
         btn_layout.addWidget(self.add_var_btn)
         btn_layout.addWidget(self.remove_var_btn)
         layout.addLayout(btn_layout)
-        
-        # Add default 'x' variable
-        self.add_variable_row("x", 0, 9, 1)
-
-        # Connect formula changed
-        self.formula_input.textChanged.connect(self.update_preview)
-        
         # 4. Preview / Info
         self.info_label = QLabel("Result: (Preview will appear here)")
         self.info_label.setStyleSheet("color: #00d2ff; font-weight: bold;")
@@ -84,6 +76,14 @@ class DataGeneratorDialog(QDialog):
         action_layout.addWidget(self.generate_btn)
         action_layout.addWidget(self.cancel_btn)
         layout.addLayout(action_layout)
+
+        # 6. Initialize Variables and Connections (Triggering events)
+        # Add default 'x' variable
+        self.add_variable_row("x", 0, 9, 1)
+
+        # Connect formula changed and table changed ONLY after info_label exists
+        self.formula_input.textChanged.connect(self.update_preview)
+        self.var_table.itemChanged.connect(self.update_preview)
 
         # Initial preview
         self.update_preview()
