@@ -1,8 +1,93 @@
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
                              QLineEdit, QSpinBox, QComboBox, QPushButton, 
-                             QTableWidget, QTableWidgetItem, QMessageBox, QHeaderView)
-from PyQt6.QtCore import Qt
+                             QTableWidget, QTableWidgetItem, QMessageBox, QHeaderView, QWidget)
+from PyQt6.QtGui import QPainter, QPen, QColor, QFont, QBrush, QPainterPath
+from PyQt6.QtCore import Qt, QRect, QPoint
 import math
+
+class SignalPreviewWidget(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setMinimumHeight(80)
+        self.data = [] # List of strings
+        self.bits = 8
+        self.color = "#00d2ff"
+        self.error_msg = ""
+
+    def set_preview_data(self, data, bits, color, error=""):
+        self.data = data
+        self.bits = bits
+        self.color = color
+        self.error_msg = error
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        
+        # Fill background
+        painter.fillRect(self.rect(), QColor("#1e1e1e"))
+        
+        if self.error_msg:
+            painter.setPen(QColor("#ff5555"))
+            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, f"Preview Error: {self.error_msg}")
+            return
+
+        if not self.data:
+            painter.setPen(QColor("#808080"))
+            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "(Waveform preview will appear here)")
+            return
+
+        # Draw Waveform
+        cw = 40 # cycle width for preview
+        start_x = 10
+        y_center = self.height() // 2
+        row_height = 40
+        high_y = y_center - 15
+        low_y = y_center + 15
+        
+        base_color = QColor(self.color)
+        
+        # Group identical values for Bus rendering
+        groups = []
+        if self.data:
+            current_val = self.data[0]
+            current_start = 0
+            for t in range(1, len(self.data)):
+                if self.data[t] != current_val:
+                    groups.append((current_start, t - 1, current_val))
+                    current_val = self.data[t]
+                    current_start = t
+            groups.append((current_start, len(self.data) - 1, current_val))
+
+        for start_t, end_t, val in groups:
+            x1 = start_x + start_t * cw
+            x2 = start_x + (end_t + 1) * cw
+            
+            # Draw Hexagon/Bus shape
+            slant = 5
+            poly_pts = [
+                QPoint(int(x1), int(y_center)),
+                QPoint(int(x1 + slant), int(high_y)),
+                QPoint(int(x2 - slant), int(high_y)),
+                QPoint(int(x2), int(y_center)),
+                QPoint(int(x2 - slant), int(low_y)),
+                QPoint(int(x1 + slant), int(low_y)),
+                QPoint(int(x1), int(y_center))
+            ]
+            
+            painter.setPen(QPen(base_color, 2))
+            painter.setBrush(QBrush(QColor(base_color.red(), base_color.green(), base_color.blue(), 100)))
+            painter.drawPolygon(poly_pts)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            
+            # Label
+            text_rect = QRect(int(x1), int(high_y), int(x2-x1), int(low_y - high_y))
+            painter.setPen(QColor("#ffffff"))
+            font = painter.font()
+            font.setPointSize(7)
+            painter.setFont(font)
+            painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, str(val))
 
 class DataGeneratorDialog(QDialog):
     def __init__(self, project, parent=None, initial_signal_index=None, initial_start=0, initial_end=0):
@@ -60,10 +145,15 @@ class DataGeneratorDialog(QDialog):
         btn_layout.addWidget(self.add_var_btn)
         btn_layout.addWidget(self.remove_var_btn)
         layout.addLayout(btn_layout)
-        # 4. Preview / Info
-        self.info_label = QLabel("Result: (Preview will appear here)")
-        self.info_label.setStyleSheet("color: #00d2ff; font-weight: bold;")
+        # 4. Waveform Preview
+        self.preview_widget = SignalPreviewWidget()
+        layout.addWidget(self.preview_widget)
+        
+        # 4.1 Error Info (Optional text fallback)
+        self.info_label = QLabel("")
+        self.info_label.setStyleSheet("color: #ff5555; font-weight: bold;")
         self.info_label.setWordWrap(True)
+        self.info_label.setVisible(False)
         layout.addWidget(self.info_label)
         
         # 5. Buttons
@@ -91,7 +181,7 @@ class DataGeneratorDialog(QDialog):
     def update_preview(self):
         formula = self.formula_input.text().strip()
         if not formula:
-            self.info_label.setText("Result: (Enter formula)")
+            self.preview_widget.set_preview_data([], 8, "#00d2ff")
             return
 
         # 1. Parse Variables
@@ -118,11 +208,11 @@ class DataGeneratorDialog(QDialog):
             except:
                 continue
 
-        # 2. Evaluate first few samples
+        # 2. Evaluate samples for preview (more cycles for visual)
         preview_values = []
         try:
             start_cycle = self.start_spin.value()
-            for t in range(start_cycle, start_cycle + 5):
+            for t in range(start_cycle, start_cycle + 15):
                 # Context
                 eval_context = {}
                 for v_name, v_data in variables.items():
@@ -145,11 +235,21 @@ class DataGeneratorDialog(QDialog):
                     res = int(res)
                 preview_values.append(str(res))
 
-            self.info_label.setText(f"Result Preview: {', '.join(preview_values)} ...")
-            self.info_label.setStyleSheet("color: #00ff00;") # Green for success
+            # Get target signal metadata for preview color/type
+            sig_color = "#00d2ff"
+            sig_bits = 8
+            if self.signal_combo.currentIndex() < len(self.signal_map):
+                logical_idx = self.signal_map[self.signal_combo.currentIndex()]
+                sig = self.project.signals[logical_idx]
+                sig_color = sig.color
+                sig_bits = sig.bits
+
+            self.preview_widget.set_preview_data(preview_values, sig_bits, sig_color)
+            self.info_label.setVisible(False)
         except Exception as e:
-            self.info_label.setText(f"Result: (Error) {str(e)}")
-            self.info_label.setStyleSheet("color: #ff5555;") # Red for error
+            self.preview_widget.set_preview_data([], 8, "#00d2ff")
+            self.info_label.setText(f"(Error) {str(e)}")
+            self.info_label.setVisible(True)
 
     def populate_signals(self, initial_idx):
         self.signal_map = [] # stores logical index
